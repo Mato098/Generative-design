@@ -1,0 +1,44 @@
+{
+  "dffefad8df4c6180": {
+    "name": "Imperial Shock Cavalry",
+    "creator_agent_id": "sprite_gen_player_1",
+    "created_at": 6612,
+    "cached_at": 1763321659.501878,
+    "validation_hash": "a211636921d8f45260acab4c722d945a"
+  },
+  "75bae364f9d3d3b3": {
+    "name": "Legion Musketeer",
+    "creator_agent_id": "sprite_gen_player_1",
+    "created_at": 15638,
+    "cached_at": 1763321659.5034025,
+    "validation_hash": "f7990ab64bc0c8aaa51666e53c531ca3"
+  },
+  "ceadb09c1a91fb2f": {
+    "name": "Imperial_Arquebusier",
+    "creator_agent_id": "sprite_gen_player_1",
+    "created_at": 24902,
+    "cached_at": 1763321659.5047743,
+    "validation_hash": "9a05f2ba5dba6e204771c449a20ad020"
+  },
+  "31d2605d6ffbfe6a": {
+    "name": "Mercantile Settler",
+    "creator_agent_id": "sprite_gen_player_2",
+    "created_at": 10115,
+    "cached_at": 1763321768.0027294,
+    "validation_hash": "488533db7e3a7e4b7cd15a66b8beea48"
+  },
+  "96a2e86fde3d6a32": {
+    "name": "Ravenwind Caravel",
+    "creator_agent_id": "sprite_gen_player_4",
+    "created_at": 10469,
+    "cached_at": 1763322072.9681227,
+    "validation_hash": "72f265efbb4d73f97afb609a747d6402"
+  },
+  "ff2879c2a8df7943": {
+    "name": "Raven Scout",
+    "creator_agent_id": "sprite_gen_player_4",
+    "created_at": 17463,
+    "cached_at": 1763322072.9700556,
+    "validation_hash": "5fc45a83b21df6080ebce59998f9ed4b"
+  }
+}
