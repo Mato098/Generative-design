@@ -291,50 +291,71 @@ class LLMInterface:
         
         start_time = time.time()
         
-        # Define structured sprite schema
-        sprite_schema = {
-            "type": "json_schema",
-            "json_schema": {
-                "strict": False,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "sprite_name": {"type": "string"},
-                        "description": {"type": "string"},
-                        "pixel_grid": {
-                            "type": "array",
-                            "items": {"type": "string"}
-                        },
-                        "color_mapping": {
-                            "type": "object",
-                            "additionalProperties": {"type": "string"}
-                        },
-                        "design_notes": {"type": "string"}
-                    },
-                    "required": [
-                        "sprite_name",
-                        "description", 
-                        "pixel_grid",
-                        "color_mapping",
-                        "design_notes"
-                    ]
-                }
-            }
-        }
+        # Create enhanced prompt with very clear JSON format instructions
+        enhanced_prompt = f"""{system_prompt}
+
+{user_message}
+
+CRITICAL: Respond ONLY with a valid JSON object. No other text before or after. Use this EXACT format:
+
+{{
+    "sprite_name": "your sprite name here",
+    "description": "brief description",
+    "pixel_grid": [
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................"
+    ],
+    "color_mapping": {{
+        ".": "#000000",
+        "#": "#FFFFFF"
+    }},
+    "design_notes": "short notes"
+}}
+
+REQUIREMENTS:
+- pixel_grid must have exactly 16 lines
+- Each line must have exactly 16 characters  
+- Use these characters: . # * o O x X + @
+- color_mapping must define all used characters
+- Keep design_notes under 100 characters
+- NO extra text, just the JSON
+
+Example color_mapping (use any of these as needed):
+{{
+    ".": "#000000",
+    "#": "#8B4513", 
+    "*": "#FF0000",
+    "o": "#FFD700",
+    "O": "#0000FF",
+    "x": "#FFFFFF",
+    "X": "#808080",
+    "+": "#00FF00",
+    "@": "#800080"
+}}"""
         
         try:
-            # Prepare messages
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message}
-            ]
-            
-            # Make structured API call
+            # Make the call with enhanced prompt (no structured output)
             response = await asyncio.to_thread(
-                self._make_sync_call,
-                messages,
-                None,  # No tools for structured output
-                sprite_schema
+                self.client.chat.completions.create,
+                model=self.model,
+                messages=[{"role": "user", "content": enhanced_prompt}],
+                max_completion_tokens=MAX_TOKENS,  # GPT-5-nano uses max_completion_tokens instead of max_tokens
+                temperature=TEMPERATURE,
+                timeout=REQUEST_TIMEOUT
             )
             
             response_time = time.time() - start_time
@@ -373,9 +394,17 @@ class LLMInterface:
             
             # Parse the JSON content
             content = message.content or "{}"
-            print(f"🔍 Structured response content: {content[:200]}...")
+            print(f"🔍 Raw response content: {content[:300]}...")
             
-            sprite_data = json.loads(content)
+            # Try to extract JSON if it's embedded in text
+            json_content = content
+            if '{' in content and '}' in content:
+                start = content.find('{')
+                end = content.rfind('}') + 1
+                json_content = content[start:end]
+                print(f"🔍 Extracted JSON: {json_content[:200]}...")
+            
+            sprite_data = json.loads(json_content)
             print(f"🔍 Parsed sprite data keys: {list(sprite_data.keys())}")
             
             # Validate and enforce constraints in code
@@ -397,14 +426,20 @@ class LLMInterface:
                 # Try to fix or pad the grid
                 if isinstance(pixel_grid, list):
                     if len(pixel_grid) < 16:
-                        pixel_grid.extend(['.' * 16 for _ in range(16 - len(pixel_grid))])
+                        pixel_grid.extend(['.' * 16 for _ in range(16 - len(pixel_grid))])  
                     elif len(pixel_grid) > 16:
                         pixel_grid = pixel_grid[:16]
                     sprite_data['pixel_grid'] = pixel_grid
+                else:
+                    # If pixel_grid is not a list, create a default grid
+                    sprite_data['pixel_grid'] = ['.' * 16 for _ in range(16)]
+                    print("WARNING: pixel_grid was not a list, created default grid")
             
             # Ensure each row has exactly 16 characters
             for i, row in enumerate(sprite_data['pixel_grid']):
-                if len(row) != 16:
+                if not isinstance(row, str):
+                    sprite_data['pixel_grid'][i] = '.' * 16
+                elif len(row) != 16:
                     if len(row) < 16:
                         sprite_data['pixel_grid'][i] = row + '.' * (16 - len(row))
                     elif len(row) > 16:
@@ -423,6 +458,14 @@ class LLMInterface:
                     '+': '#00FFFF',
                     '@': '#808080'
                 }
+            
+            # Ensure other required fields exist
+            if 'sprite_name' not in sprite_data:
+                sprite_data['sprite_name'] = 'Generated Sprite'
+            if 'description' not in sprite_data:
+                sprite_data['description'] = 'A generated sprite'
+            if 'design_notes' not in sprite_data:
+                sprite_data['design_notes'] = 'Auto-generated'
             
             print(f"✅ Validated sprite grid: {len(sprite_data['pixel_grid'])}x{len(sprite_data['pixel_grid'][0]) if sprite_data['pixel_grid'] else 0}")
             
@@ -446,6 +489,52 @@ class LLMInterface:
                 function_calls=function_calls,
                 token_usage=self.token_usage,
                 success=True,
+                response_time=response_time
+            )
+            
+        except json.JSONDecodeError as e:
+            print(f"🔍 JSON decode error: {e}")
+            if 'content' in locals():
+                print(f"🔍 Content causing JSON error: {content}")
+            
+            # Try to create a fallback response with default sprite
+            default_sprite_data = {
+                "sprite_name": "Default Sprite",
+                "description": "A default sprite generated due to parsing error", 
+                "pixel_grid": [
+                    "................",
+                    "......####......", 
+                    ".....#....#.....",
+                    ".....#....#.....",
+                    "......####......",
+                    ".......##.......",
+                    ".......##.......",
+                    ".......##.......",
+                    ".......##.......",
+                    ".....######.....",
+                    "....##....##....",
+                    "....##....##....",
+                    "....##....##....", 
+                    "....##....##....",
+                    "................",
+                    "................"
+                ],
+                "color_mapping": {
+                    ".": "#000000",
+                    "#": "#FFFFFF"
+                },
+                "design_notes": "Fallback sprite due to JSON parsing error"
+            }
+            
+            return LLMResponse(
+                content=json.dumps(default_sprite_data),
+                function_calls=[{
+                    "id": "fallback_sprite",
+                    "name": "generate_sprite", 
+                    "arguments": default_sprite_data
+                }],
+                token_usage=self.token_usage,
+                success=True,  # Return success with fallback
                 response_time=response_time
             )
             

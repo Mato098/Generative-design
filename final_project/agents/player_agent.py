@@ -14,10 +14,19 @@ from config.llm_config import (
 )
 import time
 
+# Import faction cache
+try:
+    from data.cache.faction_cache import FactionCache
+    FACTION_CACHING_ENABLED = True
+except ImportError:
+    FACTION_CACHING_ENABLED = False
+
 class PlayerAgent(BaseAgent, AgentPersonalityMixin, AgentMemoryMixin, AgentCommunicationMixin):
     """AI player agent that controls a faction in the game."""
     
-    def __init__(self, agent_id: str, personality_index: int = 0):
+    def __init__(self, agent_id: str, personality_index: int = 0,
+                 use_faction_cache: bool = True,
+                 faction_cache_mode: str = "similar"):  # "exact", "similar", "random"
         """Initialize player agent with personality."""
         # Get personality from config
         personality = DEFAULT_PERSONALITIES[personality_index % len(DEFAULT_PERSONALITIES)]
@@ -32,6 +41,11 @@ class PlayerAgent(BaseAgent, AgentPersonalityMixin, AgentMemoryMixin, AgentCommu
         })
         AgentMemoryMixin.__init__(self)
         AgentCommunicationMixin.__init__(self, personality.communication_style)
+        
+        # Faction caching configuration
+        self.use_faction_cache = use_faction_cache and FACTION_CACHING_ENABLED
+        self.faction_cache_mode = faction_cache_mode
+        self.faction_cache = FactionCache() if self.use_faction_cache else None
         
         self.faction_id: Optional[str] = None
         self.faction_created = False
@@ -76,15 +90,25 @@ class PlayerAgent(BaseAgent, AgentPersonalityMixin, AgentMemoryMixin, AgentCommu
             return []
     
     async def _handle_faction_setup(self, game_state_view: Dict[str, Any]) -> List[AgentAction]:
-        """Handle faction creation phase."""
+        """Handle faction creation phase with caching support."""
         try:
-            # Create faction first
+            # Try to load complete faction from cache first
+            if self.use_faction_cache and self.faction_cache:
+                cached_faction = await self._try_load_cached_complete_faction()
+                if cached_faction:
+                    return cached_faction
+            
+            # Generate new faction if no cache hit
             faction_action = await self._create_faction()
             actions = [faction_action] if faction_action else []
             
             # Then create some custom unit designs
             unit_designs = await self._create_unit_designs()
             actions.extend(unit_designs)
+            
+            # Cache the complete faction for future use
+            if self.use_faction_cache and self.faction_cache and faction_action:
+                await self._cache_complete_faction(faction_action, unit_designs)
             
             self.faction_created = True
             return actions
@@ -641,3 +665,116 @@ Make the message fit your personality and the game situation.
             )
         
         return None
+        
+    # Faction caching methods
+    async def _try_load_cached_complete_faction(self) -> Optional[List[AgentAction]]:
+        """Try to load a complete cached faction (faction + units + sprites)."""
+        if not self.faction_cache:
+            return None
+            
+        try:
+            personality = self._extract_personality_type()
+            
+            cached_data = None
+            if self.faction_cache_mode == "exact":
+                # For exact mode, we'd need a specific theme hint - skip for now
+                cached_data = self.faction_cache.get_similar_faction(personality)
+            elif self.faction_cache_mode == "similar":
+                cached_data = self.faction_cache.get_similar_faction(personality)
+            elif self.faction_cache_mode == "random":
+                cached_data = self.faction_cache.get_similar_faction(personality)
+                
+            if cached_data and "faction_creation" in cached_data and "unit_designs" in cached_data:
+                self.logger.info(f"Using cached complete faction (mode: {self.faction_cache_mode})")
+                return self._convert_cached_faction_to_actions(cached_data)
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to load cached faction: {e}")
+            
+        return None
+    
+    def _convert_cached_faction_to_actions(self, cached_data: Dict[str, Any]) -> List[AgentAction]:
+        """Convert cached faction data back to AgentActions."""
+        actions = []
+        
+        try:
+            # Convert faction creation data
+            faction_data = cached_data["faction_creation"]
+            faction_action = AgentAction(
+                action_type="create_faction",
+                parameters=faction_data,
+                reasoning="Using cached faction creation data",
+                agent_id=self.agent_id,
+                timestamp=time.time()
+            )
+            actions.append(faction_action)
+            
+            # Convert unit design data
+            unit_designs = cached_data["unit_designs"]
+            for unit_data in unit_designs:
+                unit_action = AgentAction(
+                    action_type="design_unit",
+                    parameters=unit_data,
+                    reasoning="Using cached unit design data",
+                    agent_id=self.agent_id,
+                    timestamp=time.time()
+                )
+                actions.append(unit_action)
+                
+        except Exception as e:
+            self.logger.error(f"Failed to convert cached faction to actions: {e}")
+            return []
+            
+        return actions
+    
+    async def _cache_complete_faction(self, faction_action: AgentAction, unit_designs: List[AgentAction]):
+        """Cache the complete faction creation data."""
+        try:
+            personality = self._extract_personality_type()
+            
+            # Extract unit design parameters
+            unit_designs_data = []
+            for action in unit_designs:
+                if action and hasattr(action, 'parameters'):
+                    unit_designs_data.append(action.parameters)
+            
+            # For sprites, we'll leave it empty for now since sprites are generated separately
+            # The sprite generator will handle sprite caching
+            sprites_data = {}
+            
+            self.faction_cache.store_complete_faction(
+                personality,
+                faction_action.parameters,
+                unit_designs_data,
+                sprites_data
+            )
+            
+            self.logger.info(f"Cached complete faction data for personality: {personality}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to cache complete faction: {e}")
+    
+    def _extract_personality_type(self) -> str:
+        """Extract personality type from agent configuration."""
+        # Map strategic style to personality type
+        strategic_style = getattr(self, 'strategic_style', '').lower()
+        
+        if 'aggressive' in strategic_style or 'offensive' in strategic_style:
+            return 'aggressive'
+        elif 'defensive' in strategic_style or 'turtle' in strategic_style:
+            return 'defensive'
+        elif 'diplomatic' in strategic_style or 'peaceful' in strategic_style:
+            return 'peaceful'
+        elif 'balanced' in strategic_style or 'adaptive' in strategic_style:
+            return 'balanced'
+        
+        # Fallback to agent name analysis
+        agent_name = getattr(self, 'name', '').lower()
+        if any(word in agent_name for word in ['caesar', 'warrior', 'conqueror']):
+            return 'aggressive'
+        elif any(word in agent_name for word in ['guardian', 'defender']):
+            return 'defensive'
+        elif any(word in agent_name for word in ['diplomat', 'merchant']):
+            return 'peaceful'
+        
+        return 'balanced'  # Default fallback

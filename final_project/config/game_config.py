@@ -14,6 +14,13 @@ MAX_PLAYERS = 4
 MAX_TURNS = 10
 TURN_TIMEOUT_SECONDS = 30
 
+# Caching configuration
+FACTION_CACHE_ENABLED = os.getenv("FACTION_CACHE_ENABLED", "true").lower() == "true"
+FACTION_CACHE_MODE = os.getenv("FACTION_CACHE_MODE", "similar")  # "exact", "similar", "random"
+SPRITE_CACHE_ENABLED = os.getenv("SPRITE_CACHE_ENABLED", "true").lower() == "true"
+SPRITE_CACHE_MODE = os.getenv("SPRITE_CACHE_MODE", "similar")  # "exact", "similar", "random"
+CACHE_SAVE_ENABLED = os.getenv("CACHE_SAVE_ENABLED", "true").lower() == "true"
+
 # Unit constraints
 MAX_UNIT_HEALTH = 100
 MAX_UNIT_ATTACK = 50

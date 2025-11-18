@@ -29,7 +29,7 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config.game_config import GameConfig
+from config.game_config import GameConfig, FACTION_CACHE_ENABLED, FACTION_CACHE_MODE, SPRITE_CACHE_ENABLED, SPRITE_CACHE_MODE
 from config.llm_config import DEFAULT_PERSONALITIES
 from config.visualization_config import VisualizationConfig
 
@@ -133,7 +133,9 @@ class GameLauncher:
         for i, personality in enumerate(DEFAULT_PERSONALITIES):
             agent = PlayerAgent(
                 agent_id=f"player_{i+1}",
-                personality_index=i
+                personality_index=i,
+                use_faction_cache=FACTION_CACHE_ENABLED,
+                faction_cache_mode=FACTION_CACHE_MODE
             )
             self.player_agents.append(agent)
             self.logger.info(f"Created {personality.name} ({personality.strategic_style})")
@@ -173,7 +175,12 @@ class GameLauncher:
                 await self.game_engine.process_faction_creation(agent.agent_id, faction_result.get("actions", []))
                 
                 # Generate sprites for custom units
-                sprite_generator = SpriteGenerator(f"sprite_gen_{agent.agent_id}")
+                sprite_generator = SpriteGenerator(
+                    f"sprite_gen_{agent.agent_id}",
+                    use_cache=SPRITE_CACHE_ENABLED,
+                    cache_mode=SPRITE_CACHE_MODE,
+                    save_to_cache=True
+                )
                 if faction_result.get("actions"):
                     # Get faction data from game state
                     faction = self.game_state.factions.get(agent.agent_id)
@@ -365,7 +372,12 @@ class GameLauncher:
         print("\n2. SPRITE GENERATION DEMO")
         print("-"*30)
         
-        sprite_generator = SpriteGenerator("demo_generator")
+        sprite_generator = SpriteGenerator(
+            "demo_generator",
+            use_cache=SPRITE_CACHE_ENABLED,
+            cache_mode=SPRITE_CACHE_MODE,
+            save_to_cache=True
+        )
         
         # Generate a simple sprite (mock)
         print("Generating unit sprite...")

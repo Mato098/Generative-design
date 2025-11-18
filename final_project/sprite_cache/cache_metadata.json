@@ -40,5 +40,47 @@
     "created_at": 17463,
     "cached_at": 1763322072.9700556,
     "validation_hash": "5fc45a83b21df6080ebce59998f9ed4b"
+  },
+  "4dd507ce1755ea8f": {
+    "name": "Caesarian Musketeer",
+    "creator_agent_id": "sprite_gen_player_1",
+    "created_at": 9706,
+    "cached_at": 1763481163.8647346,
+    "validation_hash": "45c1fbce5f0b812709fd8494a8c47159"
+  },
+  "f736e26069fed4fb": {
+    "name": "Imperator Shock Cavalry",
+    "creator_agent_id": "sprite_gen_player_1",
+    "created_at": 19702,
+    "cached_at": 1763481163.8664072,
+    "validation_hash": "ce018263cf5092fb41450daac0656ef5"
+  },
+  "78c761c80542358a": {
+    "name": "Caesar's Arquebusier",
+    "creator_agent_id": "sprite_gen_player_1",
+    "created_at": 26553,
+    "cached_at": 1763481163.8680062,
+    "validation_hash": "4d3c60579fb2b09ba2b91db9e1b0e576"
+  },
+  "ed285af2ad738745": {
+    "name": "Mercantile Settler",
+    "creator_agent_id": "sprite_gen_player_2",
+    "created_at": 8657,
+    "cached_at": 1763481277.8657327,
+    "validation_hash": "fc331af279230a6b08eb446dc26eebe9"
+  },
+  "157ce2c2d3923c55": {
+    "name": "Bastion Pike",
+    "creator_agent_id": "sprite_gen_player_3",
+    "created_at": 5811,
+    "cached_at": 1763481369.2062778,
+    "validation_hash": "c324b6a6c2b6a15ebcb023eb2427b0a4"
+  },
+  "939754958ccdb88c": {
+    "name": "Sea Wolf Caravel",
+    "creator_agent_id": "sprite_gen_player_4",
+    "created_at": 9281,
+    "cached_at": 1763481614.3586493,
+    "validation_hash": "20229e4aa884fb15d58e47ca71228323"
   }
 }

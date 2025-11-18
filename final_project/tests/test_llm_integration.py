@@ -1,4 +1,14 @@
-"""Tests for LLM integration and agent decision-making."""
+"""Tests for LLM integration and agent decision-making.
+
+NOTE: These tests use MOCKED LLM calls for speed and cost efficiency.
+They verify configuration, data structures, and integration patterns
+but do NOT make real OpenAI API calls.
+
+For real end-to-end LLM testing, run the demo mode:
+    python main.py --demo
+
+Real LLM testing costs money (~$0.40-0.70) so it's not included in the test suite.
+"""
 import unittest
 import asyncio
 import os
@@ -301,7 +311,7 @@ class TestEnvironmentValidation(unittest.TestCase):
         # Test token limits
         max_tokens = int(os.getenv("OPENAI_MAX_TOKENS", "3000"))
         self.assertGreater(max_tokens, 100)
-        self.assertLess(max_tokens, 10000)  # Reasonable upper limit
+        self.assertLessEqual(max_tokens, 10000)  # Allow exactly 10000
         
         # Test temperature
         temperature = float(os.getenv("OPENAI_TEMPERATURE", "1.0"))

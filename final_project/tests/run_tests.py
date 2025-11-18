@@ -3,15 +3,50 @@ from io import StringIO
 import unittest
 import sys
 import os
+import argparse
 
-def run_all_tests():
+def run_all_tests(include_real_llm=False):
     """Run all test modules."""
-    # Discover and run all tests
-    loader = unittest.TestLoader()
-    start_dir = os.path.dirname(__file__)
+    # Add project root to path for imports
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
     
-    # Discover all test files
-    suite = loader.discover(start_dir, pattern='test_*.py')
+    # List of test modules to run
+    test_modules = [
+        'test_agents',
+        'test_entities', 
+        'test_game_state',
+        'test_llm_integration',
+        'test_simple_cache',
+        'test_sprite_generation'
+    ]
+    
+    # Add real LLM tests if requested
+    if include_real_llm:
+        test_modules.append('test_real_llm')
+        print("⚠️  Including REAL LLM tests (will cost money!)")
+    else:
+        print("ℹ️  Excluding expensive real LLM tests (use --real-llm to include)")
+    
+    print("")
+    
+    # Create test suite
+    suite = unittest.TestSuite()
+    
+    for module_name in test_modules:
+        try:
+            # Import the module from tests package
+            module = __import__(f'tests.{module_name}', fromlist=[module_name])
+            # Add all tests from the module
+            module_tests = unittest.defaultTestLoader.loadTestsFromModule(module)
+            suite.addTest(module_tests)
+            print(f"✓ Loaded {module_name}")
+        except ImportError as e:
+            print(f"⚠️  Could not load {module_name}: {e}")
+            continue
+    
+    print("")
     
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)
@@ -36,9 +71,13 @@ def run_specific_tests(test_modules):
     return result.wasSuccessful()
 
 def run_llm_integration_tests():
-    """Run LLM-specific integration tests."""
+    """Run LLM-specific integration tests (MOCKED - no real API calls)."""
     print("\n🤖 Running LLM Integration Tests")
     print("=" * 40)
+    print("ℹ️  NOTE: These tests use MOCKED LLM calls (no real API costs)")
+    print("   They verify configuration and integration patterns only.")
+    print("   For real LLM testing, use: python main.py --demo")
+    print("")
     
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
@@ -67,7 +106,29 @@ def print_environment_info():
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Run game tests")
+    parser = argparse.ArgumentParser(
+        description="Test runner for Multi-Agent LLM Strategy Game",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Test Modes:
+  Default: Fast, free mock tests only (recommended for development)
+  --real-llm: Include expensive real OpenAI API tests (~$0.40-0.70)
+  --llm-only: Run only LLM integration tests (mocked)
+  --module: Run specific test modules
+
+Examples:
+  python run_tests.py                    # Fast mock tests (free)
+  python run_tests.py --real-llm         # All tests including real API calls
+  python run_tests.py --llm-only         # Just mocked LLM tests
+        """
+    )
+    
+    parser.add_argument(
+        "--real-llm", 
+        action="store_true",
+        help="Include real LLM integration tests (WARNING: costs money!)"
+    )
+    
     parser.add_argument(
         "--module", "-m",
         action="append",
@@ -85,14 +146,26 @@ if __name__ == "__main__":
     )
     
     args = parser.parse_args()
-
+    
     # Set testing environment
     os.environ.setdefault("TESTING", "true")
     
-    print("🎮 Running Multi-Agent Strategy Game Tests")
+    print("🎮 Multi-Agent LLM Strategy Game Tests")
     print("=" * 50)
     
+    if args.real_llm:
+        print("⚠️  WARNING: Including REAL LLM tests that cost money!")
+        print("💰 Estimated cost: ~$0.40-0.70 in OpenAI API calls")
+        print("")
+        response = input("Do you want to proceed? (y/N): ")
+        if response.lower() not in ['y', 'yes']:
+            print("❌ Test cancelled by user")
+            print("💡 Use 'python run_tests.py' for free mock tests")
+            sys.exit(0)
+        print("")
+    
     if args.llm_only:
+        print("🤖 Running ONLY LLM integration tests (mocked)...")
         try:
             success = run_llm_integration_tests()
         except Exception as e:
@@ -101,19 +174,24 @@ if __name__ == "__main__":
     elif args.module:
         success = run_specific_tests(args.module)
     else:
-        success = run_all_tests()
+        success = run_all_tests(include_real_llm=args.real_llm)
         
-        # Also run LLM integration tests if available
-        try:
-            llm_success = run_llm_integration_tests()
-            success = success and llm_success
-        except Exception as e:
-            print(f"⚠️  Could not run LLM integration tests: {e}")
+        # Also run mocked LLM integration tests if not already included
+        if not args.real_llm:
+            try:
+                llm_success = run_llm_integration_tests()
+                success = success and llm_success
+            except Exception as e:
+                print(f"⚠️  Could not run mocked LLM integration tests: {e}")
     
     print_environment_info()
     
     if success:
-        print("\n✅ All tests passed!")
+        if args.real_llm:
+            print("\n✅ All tests passed (including real LLM integration)!")
+        else:
+            print("\n✅ All tests passed (mocked tests only)!")
+            print("💡 Use --real-llm to test actual LLM integration (costs money)")
         sys.exit(0)
     else:
         print("\n❌ Some tests failed!")
