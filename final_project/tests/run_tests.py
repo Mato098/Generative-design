@@ -19,6 +19,7 @@ def run_all_tests(include_real_llm=False):
         'test_game_state',
         'test_llm_integration',
         'test_simple_cache',
+        'test_cache_integration',
         'test_sprite_generation'
     ]
     

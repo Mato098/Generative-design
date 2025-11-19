@@ -10,13 +10,26 @@ from entities.sprite import Sprite, SpriteTemplate
 from agents.function_schemas import SPRITE_GENERATION_FUNCTIONS
 from config.llm_config import SPRITE_GENERATION_SYSTEM_PROMPT
 
-# Import caching system
+# Import caching system and game config
 try:
     from data.cache.faction_cache import FactionCache
     CACHING_ENABLED = True
 except ImportError:
     CACHING_ENABLED = False
     logging.warning("Faction caching not available")
+
+# Import game config for cache settings
+try:
+    from config.game_config import (
+        SPRITE_CACHE_ENABLED, 
+        SPRITE_CACHE_MODE, 
+        CACHE_SAVE_ENABLED
+    )
+except ImportError:
+    # Fallback defaults if game config not available
+    SPRITE_CACHE_ENABLED = True
+    SPRITE_CACHE_MODE = "similar"
+    CACHE_SAVE_ENABLED = True
 
 @dataclass
 class SpriteGenerationRequest:
@@ -165,19 +178,23 @@ class SpriteGenerator:
     """Generates sprites using LLM and converts them to pixel format."""
     
     def __init__(self, agent_id: str = "sprite_generator", 
-                 use_cache: bool = True,
-                 cache_mode: str = "similar",  # "exact", "similar", "random"
-                 save_to_cache: bool = True):
+                 use_cache: Optional[bool] = None,
+                 cache_mode: Optional[str] = None,
+                 save_to_cache: Optional[bool] = None):
         self.agent_id = agent_id
         self.llm_interface = LLMInterface(agent_id)
         self.parser = SpriteParser()
         self.logger = logging.getLogger("SpriteGenerator")
         
-        # Cache configuration
-        self.use_cache = use_cache and CACHING_ENABLED
-        self.cache_mode = cache_mode  # "exact", "similar", "random"
-        self.save_to_cache = save_to_cache
-        self.cache = FactionCache() if self.use_cache else None
+        # Use game config defaults if not specified
+        self.use_cache = (use_cache if use_cache is not None else SPRITE_CACHE_ENABLED) and CACHING_ENABLED
+        self.cache_mode = cache_mode if cache_mode is not None else SPRITE_CACHE_MODE
+        self.save_to_cache = save_to_cache if save_to_cache is not None else CACHE_SAVE_ENABLED
+        
+        self.cache = FactionCache() if self.use_cache or self.save_to_cache else None
+        
+        # Log the current cache configuration
+        self.logger.info(f"🗄️  Cache config: use={self.use_cache}, mode={self.cache_mode}, save={self.save_to_cache}")
         
         # Generation statistics
         self.sprites_generated = 0
@@ -480,31 +497,13 @@ Max 10 words for design_notes."""
         
         print("═══" + "═" * len(f" SPRITE: {sprite.name} ") + "═══\n")
     
-    def _extract_personality_type(self) -> Optional[str]:
-        """Extract personality type from agent_id if possible."""
-        if not self.agent_id:
-            return None
-        
-        # Common personality mappings based on agent naming patterns
-        personality_map = {
-            'aggressive': ['caesar', 'warrior', 'conquerer', 'aggressive'],
-            'defensive': ['fortress', 'guardian', 'defensive', 'castle'],
-            'economic': ['merchant', 'trader', 'economic', 'gold'],
-            'balanced': ['viking', 'balanced', 'versatile']
-        }
-        
-        agent_lower = self.agent_id.lower()
-        for personality, keywords in personality_map.items():
-            if any(keyword in agent_lower for keyword in keywords):
-                return personality
-        
-        return None
-    
-    def _convert_cached_faction_to_sprites(self, faction_template: 'FactionTemplate') -> Dict[str, Sprite]:
-        """Convert a cached faction template back to Sprite objects."""
+   
+    def _convert_cached_faction_to_sprites(self, faction_data: Dict[str, Any]) -> Dict[str, Sprite]:
+        """Convert cached faction data back to Sprite objects."""
         sprites = {}
+        sprite_data_dict = faction_data.get("sprites", {})
         
-        for unit_name, sprite_data in faction_template.sprites.items():
+        for unit_name, sprite_data in sprite_data_dict.items():
             try:
                 # Create Sprite object from cached data
                 sprite = Sprite(
@@ -584,12 +583,12 @@ Max 10 words for design_notes."""
             theme_keywords = self._extract_theme_keywords(theme_description)
             
             # Store in cache
-            cache_key = self.cache.store_faction_template(
-                faction_data=faction_data,
-                units_data=units_data,
-                sprites_data=sprite_cache_data,
-                personality_type=personality_type,
-                theme_keywords=theme_keywords
+            theme_description = f"{faction_data.get('theme', {}).get('description', '')} {' '.join(theme_keywords)}".strip()
+            cache_key = self.cache.store_complete_faction(
+                personality_type=personality_type or "balanced",
+                faction_creation_data=faction_data,
+                unit_designs_data=units_data,
+                sprites_data=sprite_cache_data
             )
             
             if cache_key:
@@ -635,18 +634,15 @@ Max 10 words for design_notes."""
             if not personality_type:
                 personality_type = self._extract_personality_type()
             
-            # Get a random compatible faction
-            cached_faction = self.cache.get_random_faction(personality_type=personality_type)
+            # Get a compatible faction
+            if personality_type:
+                cached_faction = self.cache.get_similar_faction(personality_type)
+            else:
+                cached_faction = self.cache.get_similar_faction("balanced")  # Default fallback
             
             if cached_faction:
-                self.logger.info(f"Loading cached faction: {cached_faction.faction_name}")
-                sprites = self._convert_cached_faction_to_sprites(cached_faction)
-                
-                # Update cache metrics
-                if hasattr(self.cache, 'metrics'):
-                    # Estimate time saved (approximate LLM generation time)
-                    time_saved = len(sprites) * 60  # ~1 minute per sprite
-                    self.cache.metrics.record_hit(time_saved)
+                self.logger.info(f"Loading cached faction with personality: {personality_type}")
+                sprites = self._convert_cached_data_to_sprites(cached_faction)
                 
                 return sprites
             
@@ -656,10 +652,10 @@ Max 10 words for design_notes."""
         return None
     
     # New simple cache methods
-    async def _try_load_cached_faction(self, personality_type: str, theme_description: str, 
+    async def _try_load_cached_faction(self, personality_type: Optional[str], theme_description: str, 
                                        architectural_style: str) -> Optional[Dict[str, Sprite]]:
         """Try to load cached faction sprites based on cache mode."""
-        if not self.cache:
+        if not self.cache or not personality_type:
             return None
             
         try:
@@ -695,8 +691,6 @@ Max 10 words for design_notes."""
             
             for unit_name, sprite_info in sprite_data.items():
                 sprite = Sprite(
-                    width=sprite_info.get("width", 16),
-                    height=sprite_info.get("height", 16),
                     name=sprite_info.get("name", unit_name),
                     description=sprite_info.get("description", ""),
                     creator_agent_id=self.agent_id
@@ -707,14 +701,13 @@ Max 10 words for design_notes."""
                 if pixel_grid:
                     for y, row in enumerate(pixel_grid):
                         for x, pixel in enumerate(row):
-                            if x < sprite.width and y < sprite.height:
+                            if x < 16 and y < 16:  # Sprites are always 16x16
                                 sprite.set_pixel(x, y, pixel)
                 
                 # Restore color palette
                 color_palette = sprite_info.get("color_palette", {})
                 if color_palette:
-                    for char, color in color_palette.items():
-                        sprite.add_color(char, color)
+                    sprite.color_palette = color_palette.copy()
                 
                 sprites[unit_name] = sprite
                 
@@ -730,18 +723,16 @@ Max 10 words for design_notes."""
         
         for unit_name, sprite in sprites.items():
             sprite_data[unit_name] = {
-                "width": sprite.width,
-                "height": sprite.height,
                 "name": sprite.name,
                 "description": sprite.description,
-                "pixel_grid": [[sprite.get_pixel(x, y) for x in range(sprite.width)] 
-                              for y in range(sprite.height)],
-                "color_palette": dict(sprite.colors)
+                "pixel_grid": [[sprite.get_pixel(x, y) for x in range(16)] 
+                              for y in range(16)],
+                "color_palette": dict(sprite.color_palette)
             }
             
         return sprite_data
     
-    async def _cache_faction_data(self, personality_type: str, theme_description: str,
+    async def _cache_faction_data(self, personality_type: Optional[str], theme_description: str,
                                  architectural_style: str, faction_data: Dict[str, Any],
                                  sprites: Dict[str, Sprite]):
         """Cache the generated faction data and sprites."""
@@ -752,16 +743,19 @@ Max 10 words for design_notes."""
                 "architectural_style": architectural_style,
                 "generation_metadata": {
                     "agent_id": self.agent_id,
-                    "personality_type": personality_type,
+                    "personality_type": personality_type or "balanced",
                     "unit_count": len(sprites)
                 }
             }
             
-            cache_key = self.cache.store_faction(
-                personality_type or "unknown", 
-                theme_description or architectural_style,
-                cache_data
-            )
+            if self.cache:
+                cache_key = self.cache.store_faction(
+                    personality_type or "balanced", 
+                    theme_description or architectural_style,
+                    cache_data
+                )
+            else:
+                cache_key = "no_cache"
             
             self.logger.info(f"Cached faction data with key: {cache_key[:8]}...")
             

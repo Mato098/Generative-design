@@ -134,6 +134,10 @@ Consider: unit counts, resource distribution, building types, and overall power 
             adjustment_action = await self._suggest_balance_adjustments(factions)
             if adjustment_action:
                 actions.append(adjustment_action)
+                
+            # Also try direct faction editing for severe balance issues
+            edit_actions = await self._edit_faction_units(factions)
+            actions.extend(edit_actions)
         
         return actions
     
@@ -236,6 +240,54 @@ Use the approve_faction function.
             )
         
         return None
+    
+    async def _edit_faction_units(self, factions: Dict[str, Any]) -> List[AgentAction]:
+        """Edit specific faction units that need balancing."""
+        actions = []
+        
+        # Only edit if we have balance issues flagged
+        if not self.balance_issues:
+            return actions
+            
+        for agent_id, faction in factions.items():
+            # Check if this faction has problematic units
+            custom_units = faction.get("custom_unit_designs", {})
+            
+            for unit_name, unit_data in custom_units.items():
+                stats = unit_data.get("stats", {})
+                
+                # Simple balance check - if health + attack > 80, it might be overpowered
+                total_power = stats.get("health", 50) + stats.get("attack", 10)
+                
+                if total_power > 80:
+                    # Create edit action with faction_id set to agent_id
+                    edit_action = AgentAction(
+                        action_type="edit_faction_unit",
+                        parameters={
+                            "faction_id": agent_id,
+                            "unit_name": unit_name,
+                            "new_stats": {
+                                "health": min(stats.get("health", 50), 60),
+                                "attack": min(stats.get("attack", 10), 25)
+                            },
+                            "reasoning": f"Auto-balanced overpowered unit (power: {total_power} -> ~85)"
+                        },
+                        reasoning=f"Balancing overpowered unit {unit_name}",
+                        agent_id=self.agent_id,
+                        timestamp=time.time()
+                    )
+                    actions.append(edit_action)
+                    
+                    # Record the edit
+                    self.interventions.append({
+                        "type": "unit_edit",
+                        "faction_id": agent_id,
+                        "unit_name": unit_name,
+                        "reasoning": f"Reduced power level from {total_power} to balanced levels",
+                        "timestamp": time.time()
+                    })
+        
+        return actions
     
     async def _suggest_balance_adjustments(self, factions: Dict[str, Any]) -> Optional[AgentAction]:
         """Suggest balance adjustments if needed."""

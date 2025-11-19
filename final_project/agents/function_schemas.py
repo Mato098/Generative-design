@@ -348,6 +348,68 @@ ADMIN_FUNCTIONS = [
             },
             "required": ["faction_id", "approved", "feedback"]
         }
+    },
+    {
+        "name": "edit_faction_unit",
+        "description": "Edit a specific unit design within a faction",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "faction_id": {
+                    "type": "string",
+                    "description": "ID of faction containing the unit"
+                },
+                "unit_name": {
+                    "type": "string",
+                    "description": "Name of unit to edit"
+                },
+                "new_stats": {
+                    "type": "object",
+                    "properties": {
+                        "health": {"type": "integer", "minimum": 10, "maximum": 100},
+                        "attack": {"type": "integer", "minimum": 1, "maximum": 50},
+                        "defense": {"type": "integer", "minimum": 0, "maximum": 30},
+                        "movement_speed": {"type": "integer", "minimum": 1, "maximum": 10}
+                    }
+                },
+                "new_costs": {
+                    "type": "object",
+                    "properties": {
+                        "gold": {"type": "integer", "minimum": 10},
+                        "wood": {"type": "integer", "minimum": 0},
+                        "food": {"type": "integer", "minimum": 0},
+                        "stone": {"type": "integer", "minimum": 0}
+                    }
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Explanation for the changes"
+                }
+            },
+            "required": ["faction_id", "unit_name", "reasoning"]
+        }
+    },
+    {
+        "name": "edit_faction_theme",
+        "description": "Edit faction theme elements for balance",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "faction_id": {
+                    "type": "string",
+                    "description": "ID of faction to edit"
+                },
+                "new_description": {
+                    "type": "string",
+                    "description": "Updated faction description"
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Explanation for theme changes"
+                }
+            },
+            "required": ["faction_id", "reasoning"]
+        }
     }
 ]
 

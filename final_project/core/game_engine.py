@@ -64,6 +64,8 @@ class GameEngine:
         self.turn_manager.register_action_processor("analyze_balance", self._process_analyze_balance)
         self.turn_manager.register_action_processor("approve_faction", self._process_approve_faction)
         self.turn_manager.register_action_processor("suggest_adjustments", self._process_suggest_adjustments)
+        self.turn_manager.register_action_processor("edit_faction_unit", self._process_edit_faction_unit)
+        self.turn_manager.register_action_processor("edit_faction_theme", self._process_edit_faction_theme)
     
     def add_player_agent(self, personality_index: int = 0) -> str:
         """Add a player agent to the game."""
@@ -168,6 +170,10 @@ class GameEngine:
                 if adjustments:
                     self.game_state.balance_settings = self.game_state.balance_settings.apply_adjustments(adjustments)
                     self.logger.info(f"Applied balance adjustments: {adjustments}")
+            elif action.action_type == "edit_faction_unit":
+                await self._process_edit_faction_unit(action)
+            elif action.action_type == "edit_faction_theme":
+                await self._process_edit_faction_theme(action)
         
         self._emit_event("balancing_complete", {
             "balance_issues": len(result.actions),
@@ -453,6 +459,77 @@ class GameEngine:
         """Process faction approval by admin."""
         # This would typically trigger faction modifications or approval status changes
         return {"success": True, "message": "Faction approval processed"}
+    
+    async def _process_edit_faction_unit(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
+        """Process admin editing of faction unit."""
+        try:
+            faction_id = action.parameters.get("faction_id")
+            unit_name = action.parameters.get("unit_name")
+            new_stats = action.parameters.get("new_stats", {})
+            new_costs = action.parameters.get("new_costs", {})
+            reasoning = action.parameters.get("reasoning", "")
+            
+            faction = game_state.factions.get(faction_id)
+            if not faction:
+                return {"success": False, "error": "Faction not found"}
+            
+            # Find and edit the unit design
+            if unit_name in faction.custom_unit_designs:
+                unit_design = faction.custom_unit_designs[unit_name]
+                
+                # Update stats if provided
+                if new_stats:
+                    if "stats" not in unit_design:
+                        unit_design["stats"] = {}
+                    unit_design["stats"].update(new_stats)
+                
+                # Update costs if provided  
+                if new_costs:
+                    unit_design["resource_costs"] = new_costs
+                
+                # Mark as admin-edited
+                unit_design["admin_edited"] = True
+                unit_design["edit_reasoning"] = reasoning
+                
+                self.logger.info(f"Admin edited unit {unit_name} in faction {faction.name}: {reasoning}")
+                return {"success": True, "message": f"Unit {unit_name} edited"}
+            else:
+                return {"success": False, "error": f"Unit {unit_name} not found in faction"}
+                
+        except Exception as e:
+            self.logger.error(f"Failed to edit faction unit: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _process_edit_faction_theme(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
+        """Process admin editing of faction theme."""
+        try:
+            faction_id = action.parameters.get("faction_id")
+            new_description = action.parameters.get("new_description")
+            reasoning = action.parameters.get("reasoning", "")
+            
+            faction = game_state.factions.get(faction_id)
+            if not faction:
+                return {"success": False, "error": "Faction not found"}
+            
+            # Update theme description
+            if new_description and faction.theme:
+                faction.theme.description = new_description
+                
+            # Mark as admin-edited
+            if not hasattr(faction, 'admin_edits'):
+                faction.admin_edits = []
+            faction.admin_edits.append({
+                "type": "theme_edit",
+                "reasoning": reasoning,
+                "timestamp": time.time()
+            })
+            
+            self.logger.info(f"Admin edited theme for faction {faction.name}: {reasoning}")
+            return {"success": True, "message": f"Theme edited for {faction.name}"}
+            
+        except Exception as e:
+            self.logger.error(f"Failed to edit faction theme: {e}")
+            return {"success": False, "error": str(e)}
     
     async def _process_suggest_adjustments(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
         """Process balance adjustment suggestions."""

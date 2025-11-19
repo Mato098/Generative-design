@@ -57,44 +57,47 @@ class TestSpriteGeneration(unittest.TestCase):
         self.assertGreater(len(self.test_request.color_scheme), 0)
         self.assertLessEqual(len(self.test_request.color_scheme), 8)  # Max colors
     
-    @patch('sprites.generator.SpriteGenerator._make_mock_sprite')
-    async def test_sprite_generation_fallback(self, mock_sprite_method):
+    def test_sprite_generation_fallback(self):
         """Test sprite generation fallback when LLM unavailable."""
-        # Mock sprite creation
-        mock_sprite = Mock(spec=Sprite)
-        mock_sprite.width = 16
-        mock_sprite.height = 16
-        mock_sprite_method.return_value = mock_sprite
+        # Test when no LLM client by temporarily removing it
+        original_client = self.generator.llm_interface.client
+        self.generator.llm_interface.client = None
         
-        # Test when no LLM client
-        if not self.generator.llm_interface.client:
-            sprite = await self.generator.generate_sprite(self.test_request)
+        try:
+            # Use asyncio.run to properly handle the async call
+            sprite = asyncio.run(self.generator.generate_sprite(self.test_request))
             # Should handle gracefully when LLM unavailable
-            self.assertIsNone(sprite)  # Based on our fix to not return fallback
+            self.assertIsNone(sprite, "Should return None when LLM unavailable")
+        finally:
+            # Restore original client
+            self.generator.llm_interface.client = original_client
     
-    async def test_sprite_generation_timing(self):
+    def test_sprite_generation_timing(self):
         """Test sprite generation timing for performance validation."""
         import time
         
-        start_time = time.time()
+        async def run_timing_test():
+            # Test with no API key scenario (faster test)
+            original_client = self.generator.llm_interface.client
+            self.generator.llm_interface.client = None
+            
+            try:
+                start_time = time.time()
+                
+                # Should fail quickly when no client
+                sprite = await self.generator.generate_sprite(self.test_request)
+                
+                elapsed = time.time() - start_time
+                # Should fail quickly (< 1 second) when no API key
+                self.assertLess(elapsed, 1.0, "Should fail quickly when no API client")
+                self.assertIsNone(sprite, "Should return None when no client")
+                
+            finally:
+                # Restore original client
+                self.generator.llm_interface.client = original_client
         
-        # Attempt generation (may fail without API key, but should not hang)
-        try:
-            sprite = await asyncio.wait_for(
-                self.generator.generate_sprite(self.test_request),
-                timeout=5.0  # Should not take more than 5 seconds for failure
-            )
-        except asyncio.TimeoutError:
-            self.fail("Sprite generation should not hang indefinitely")
-        except Exception as e:
-            # Expected if no API key - just check timing
-            pass
-        
-        elapsed = time.time() - start_time
-        if not os.getenv("OPENAI_API_KEY"):
-            # Without API key, should fail quickly (< 1 second)
-            self.assertLess(elapsed, 1.0, "Should fail quickly when no API key")
-        # With API key, timing depends on actual LLM response
+        # Use asyncio.run to properly handle the async test
+        asyncio.run(run_timing_test())
     
     def test_faction_sprite_generation_data_handling(self):
         """Test faction sprite generation handles different data formats."""

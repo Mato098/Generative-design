@@ -304,6 +304,55 @@ class TestAdminAgent(unittest.TestCase):
         self.assertEqual(len(summary["balance_issues"]), 1)
         self.assertEqual(summary["balance_issues"][0]["severity"], "major")
 
+    async def test_faction_editing(self):
+        """Test admin can edit faction units and themes."""
+        # Set up test faction data with overpowered unit
+        self.admin.balance_issues.append({
+            "type": "overpowered_unit",
+            "faction_id": "test_agent", 
+            "unit_name": "SuperTank",
+            "power_level": 150  # health + attack = 100 + 50 = 150
+        })
+        
+        factions = {
+            "test_agent": {
+                "custom_unit_designs": {
+                    "SuperTank": {
+                        "stats": {
+                            "health": 100,  # Too high
+                            "attack": 50,   # Too high  
+                            "defense": 30,
+                            "movement": 2
+                        },
+                        "costs": {"metal": 200, "energy": 100},
+                        "description": "An overpowered tank unit"
+                    }
+                }
+            }
+        }
+        
+        # Test faction unit editing
+        edit_actions = await self.admin._edit_faction_units(factions)
+        
+        # Should generate one edit action
+        self.assertEqual(len(edit_actions), 1)
+        
+        action = edit_actions[0]
+        self.assertEqual(action.action_type, "edit_faction_unit")
+        self.assertEqual(action.parameters["faction_id"], "test_agent")
+        self.assertEqual(action.parameters["unit_name"], "SuperTank")
+        
+        # Check that stats were reduced to balanced levels
+        new_stats = action.parameters["new_stats"]
+        self.assertLessEqual(new_stats["health"], 60)  # Should be capped
+        self.assertLessEqual(new_stats["attack"], 25)  # Should be capped
+        
+        # Check intervention was recorded
+        self.assertEqual(len(self.admin.interventions), 1)
+        intervention = self.admin.interventions[0]
+        self.assertEqual(intervention["type"], "unit_edit")
+        self.assertEqual(intervention["faction_id"], "test_agent")
+
 class TestLLMInterface(unittest.TestCase):
     """Test LLM interface functionality."""
     

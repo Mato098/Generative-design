@@ -95,7 +95,7 @@ class GameLauncher:
             
             # Balance phase
             self.logger.info("⚖️  Starting balance phase...")
-            await self.run_balance_phase()
+            await self.game_engine._run_balancing_phase()
             
             # Main game loop
             self.logger.info("🚀 Starting main game...")
@@ -205,41 +205,6 @@ class GameLauncher:
         self.logger.info(f"📊 Created {len(self.game_state.factions)} factions total")
         for agent_id, faction in self.game_state.factions.items():
             self.logger.info(f"  - {faction.name}: {len(faction.units)} units, {len(faction.buildings)} buildings")
-    
-    async def run_balance_phase(self):
-        """Run admin balance review phase."""
-        self.logger.info("Admin reviewing game balance...")
-        
-        # Get all faction data
-        factions_objects = self.game_state.get_all_factions()
-        # Convert Faction objects to dictionaries for admin agent
-        factions = {agent_id: faction.to_dict() for agent_id, faction in factions_objects.items()}
-        
-        if len(factions) > 1:
-            self.logger.info("🔍 Starting balance analysis...")
-            # Admin analyzes balance
-            balance_result = await self.admin_agent.analyze_game_balance(factions)
-            self.logger.info(f"📊 Balance score: {balance_result.get('balance_score', 'unknown')}")
-            
-            if balance_result and balance_result.get("balance_score", 1.0) < 0.7:
-                issues = balance_result.get("issues", [])
-                
-                self.logger.info(f"⚠️  Balance analysis: {len(issues)} issues detected")
-                self.logger.info(f"Issues: {issues}")
-                
-                if len(issues) > 0:
-                    self.logger.info("🔧 Requesting balance adjustments...")
-                    # Admin suggests adjustments
-                    adjustment_result = await self.admin_agent.suggest_balance_adjustments(factions)
-                    if adjustment_result and adjustment_result.get("adjustments"):
-                        await self.game_engine.apply_balance_adjustments(
-                            adjustment_result["adjustments"], factions_objects
-                        )
-                        self.logger.info("⚖️  Balance adjustments applied")
-            else:
-                self.logger.info("✅ Game balance is acceptable")
-        
-        self.logger.info("✅ Balance phase complete")
     
     async def run_main_game(self):
         """Run the main turn-based game loop."""
