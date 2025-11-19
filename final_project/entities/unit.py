@@ -1,6 +1,6 @@
 """Game units with stats, abilities, and sprites."""
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Any
 from enum import Enum
 from .sprite import Sprite
 import uuid
@@ -69,8 +69,8 @@ class Unit:
     # Stats
     stats: UnitStats = field(default_factory=lambda: UnitStats(50, 50, 10, 5, 2))
     
-    # Abilities and traits
-    abilities: Set[UnitAbility] = field(default_factory=set)
+    # Abilities and traits (stored as string IDs for flexibility)
+    abilities: Set[str] = field(default_factory=set)  # Changed from Set[UnitAbility] to Set[str]
     
     # Visual representation
     sprite: Optional[Sprite] = None
@@ -113,8 +113,8 @@ class Unit:
             return True
         return False
     
-    def attack(self, target: 'Unit') -> Dict[str, any]:
-        """Attack another unit."""
+    def attack(self, target: 'Unit', game_state=None) -> Dict[str, Any]:
+        """Attack another unit with ability system integration."""
         if not self.can_attack():
             return {"success": False, "reason": "Cannot attack this turn"}
             
@@ -124,17 +124,43 @@ class Unit:
         if distance > self.stats.attack_range:
             return {"success": False, "reason": "Target out of range"}
         
-        # Calculate damage
+        # Calculate base damage
         base_damage = self.stats.attack
-        
-        # Apply modifiers
-        if UnitAbility.CHARGE in self.abilities and self.has_moved:
-            base_damage = int(base_damage * 1.25)
-            
-        # Target defense
         defense = target.stats.defense
-        if target.is_fortified:
+        
+        # Apply defender abilities (fortify, etc.)
+        if target.is_fortified and "fortify" in target.abilities:
             defense = int(defense * 1.5)
+        
+        # Apply attacker abilities using new system
+        try:
+            from abilities import ABILITY_REGISTRY, AbilityContext
+            
+            context = AbilityContext(
+                owner=self,
+                target=target,
+                game_state=game_state,
+                action_type="attack",
+                base_damage=base_damage,
+                base_defense=defense,
+                distance=distance
+            )
+            
+            # Execute all attack-related abilities
+            ability_results = ABILITY_REGISTRY.execute_abilities(list(self.abilities), context)
+            
+            # Update damage from ability modifications
+            if ability_results["effects"]:
+                for ability_id, effect in ability_results["effects"].items():
+                    if "new_damage" in effect:
+                        base_damage = effect["new_damage"]
+                    if "splash_active" in effect:
+                        # Handle splash damage later
+                        pass
+        except ImportError:
+            # Fallback to old system if abilities module not available
+            if "charge" in self.abilities and self.has_moved:
+                base_damage = int(base_damage * 1.25)
             
         final_damage = max(1, base_damage - defense)
         
@@ -164,9 +190,24 @@ class Unit:
     
     def fortify(self) -> bool:
         """Fortify unit for increased defense."""
-        if not self.has_moved:
-            self.is_fortified = True
-            return True
+        if not self.has_moved and "fortify" in self.abilities:
+            # Use ability system if available
+            try:
+                from abilities import ABILITY_REGISTRY, AbilityContext
+                
+                context = AbilityContext(
+                    owner=self,
+                    action_type="fortify"
+                )
+                
+                results = ABILITY_REGISTRY.execute_abilities(["fortify"], context)
+                if results["applied"]:
+                    self.is_fortified = True
+                    return True
+            except ImportError:
+                # Fallback
+                self.is_fortified = True
+                return True
         return False
     
     def gain_experience(self, exp: int) -> None:
@@ -247,7 +288,7 @@ class Unit:
                 "attack_range": self.stats.attack_range,
                 "sight_range": self.stats.sight_range
             },
-            "abilities": [ability.value for ability in self.abilities],
+            "abilities": list(self.abilities),  # Now just a list of strings
             "sprite": self.sprite.to_dict() if self.sprite else None,
             "has_moved": self.has_moved,
             "has_attacked": self.has_attacked,

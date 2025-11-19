@@ -1,6 +1,6 @@
 """Player factions with units, buildings, and resources."""
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Any
 from enum import Enum
 import uuid
 
@@ -30,6 +30,15 @@ class BuildingType(Enum):
     WALL = "wall"
     TOWER = "tower"
 
+class BuildingAbility(Enum):
+    """Special abilities buildings can have."""
+    AUTO_ATTACK = "auto_attack"      # Tower attacks nearby enemies
+    WALL = "wall"                    # Blocks movement
+    HEAL_AURA = "heal_aura"          # Heals nearby units
+    RESOURCE_BONUS = "resource_bonus"  # Increases resource generation
+    RESEARCH = "research"            # Can research technologies
+    TRAIN_FASTER = "train_faster"    # Units train faster
+
 @dataclass
 class Building:
     """A faction building."""
@@ -47,6 +56,9 @@ class Building:
     produces_units: List[str] = field(default_factory=list)  # Unit types this building can create
     resource_generation: Dict[str, int] = field(default_factory=dict)  # Resources per turn
     
+    # Abilities (stored as string IDs for flexibility)
+    abilities: Set[str] = field(default_factory=set)
+    
     # Costs
     creation_cost: Dict[str, int] = field(default_factory=lambda: {"gold": 200, "wood": 100})
     
@@ -58,10 +70,32 @@ class Building:
         return unit_type in self.produces_units and self.is_construction_complete
     
     def generate_resources(self) -> Dict[str, int]:
-        """Generate resources for this turn."""
-        if self.is_construction_complete:
-            return self.resource_generation.copy()
-        return {}
+        """Generate resources for this turn with ability bonuses."""
+        if not self.is_construction_complete:
+            return {}
+        
+        base_resources = self.resource_generation.copy()
+        
+        # Apply resource bonus ability if present
+        if "resource_bonus" in self.abilities:
+            try:
+                from abilities import ABILITY_REGISTRY, AbilityContext
+                
+                context = AbilityContext(
+                    owner=self,
+                    phase="end_turn",
+                    resources=base_resources
+                )
+                
+                results = ABILITY_REGISTRY.execute_abilities(["resource_bonus"], context)
+                if results["effects"] and "resource_bonus" in results["effects"]:
+                    bonus = results["effects"]["resource_bonus"].get("bonus_resources", {})
+                    for resource, amount in bonus.items():
+                        base_resources[resource] = base_resources.get(resource, 0) + amount
+            except ImportError:
+                pass
+        
+        return base_resources
     
     def take_damage(self, damage: int) -> None:
         """Receive damage."""
@@ -70,6 +104,31 @@ class Building:
     def is_destroyed(self) -> bool:
         """Check if building is destroyed."""
         return self.health <= 0
+    
+    def execute_turn_abilities(self, game_state=None) -> Dict[str, Any]:
+        """Execute building abilities that trigger each turn."""
+        if not self.is_construction_complete:
+            return {}
+        
+        results = {}
+        
+        try:
+            from abilities import ABILITY_REGISTRY, AbilityContext
+            
+            context = AbilityContext(
+                owner=self,
+                game_state=game_state,
+                phase="end_turn"
+            )
+            
+            # Execute all turn-based abilities
+            ability_results = ABILITY_REGISTRY.execute_abilities(list(self.abilities), context)
+            results["ability_results"] = ability_results
+            
+        except ImportError:
+            pass
+        
+        return results
 
 @dataclass
 class Faction:
@@ -93,6 +152,9 @@ class Faction:
     
     # Custom unit designs created by this faction
     custom_unit_designs: Dict[str, Dict] = field(default_factory=dict)
+    
+    # Custom building designs created by this faction
+    custom_building_designs: Dict[str, Dict] = field(default_factory=dict)
     
     # Research and technologies (future expansion)
     technologies: Set[str] = field(default_factory=set)
@@ -250,11 +312,13 @@ class Faction:
                     "construction_progress": b.construction_progress,
                     "produces_units": b.produces_units,
                     "resource_generation": b.resource_generation,
+                    "abilities": list(b.abilities),
                     "creation_cost": b.creation_cost,
                     "sprite": b.sprite.to_dict() if b.sprite else None
                 } for b in self.buildings
             ],
             "custom_unit_designs": self.custom_unit_designs,
+            "custom_building_designs": self.custom_building_designs,
             "technologies": list(self.technologies),
             "allies": list(self.allies),
             "enemies": list(self.enemies),

@@ -10,7 +10,8 @@ from .base_agent import (
 )
 from .function_schemas import get_functions_for_phase, FACTION_SETUP_FUNCTIONS, GAME_ACTION_FUNCTIONS
 from config.llm_config import (
-    DEFAULT_PERSONALITIES, PLAYER_AGENT_SYSTEM_PROMPT, DEBUG_LLM_RESPONSES
+    DEFAULT_PERSONALITIES, PLAYER_AGENT_SYSTEM_PROMPT, DEBUG_LLM_RESPONSES,
+    get_player_agent_system_prompt
 )
 import time
 
@@ -65,8 +66,8 @@ class PlayerAgent(BaseAgent, AgentPersonalityMixin, AgentMemoryMixin, AgentCommu
         return await self.make_decision(game_state_view)
     
     def get_system_prompt(self) -> str:
-        """Get system prompt for player agent."""
-        return PLAYER_AGENT_SYSTEM_PROMPT.format(
+        """Get system prompt for player agent with dynamic ability descriptions."""
+        return get_player_agent_system_prompt(
             personality_name=self.name,
             strategic_style=self.strategic_style,
             communication_style=self.communication_style
@@ -152,6 +153,13 @@ Use the create_faction function to define your faction.
         """Create custom unit designs for faction."""
         actions = []
         
+        # Get dynamic ability descriptions
+        try:
+            from abilities import get_ability_descriptions
+            ability_list = get_ability_descriptions("unit")
+        except ImportError:
+            ability_list = "Abilities loading..."
+        
         # Create 2-3 unit designs based on preferred types and strategy
         design_count = random.randint(2, 3)
         
@@ -167,8 +175,11 @@ Design a custom {unit_category} unit for your faction that fits your {self.strat
 Consider:
 - Your faction's theme and style
 - Combat role and tactical purpose
-- Balanced but interesting stats
-- Unique abilities that support your strategy
+- Balanced but interesting stats (health: 10-100, attack: 1-50, defense: 0-30, movement: 1-10)
+- Unique abilities that support your strategy (max 3)
+
+AVAILABLE ABILITIES:
+{ability_list}
 
 This is design #{i+1} of {design_count}. Make each unit design distinct and useful.
 

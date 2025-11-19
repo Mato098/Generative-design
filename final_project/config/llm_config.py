@@ -18,7 +18,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 def check_api_key():
     """Check if API key is configured and show warning if not."""
     if not OPENAI_API_KEY:
-        print("⚠️  Warning: OPENAI_API_KEY not found. Set it in your .env file or environment variables.")
+        print("Warning: OPENAI_API_KEY not found. Set it in your .env file or environment variables.")
         print("   Create a .env file with: OPENAI_API_KEY=your_api_key_here")
         return False
     return True
@@ -38,6 +38,45 @@ DEBUG_LLM_RESPONSES = os.getenv("DEBUG_LLM_RESPONSES", "false").lower() in ("tru
 # Rate limiting
 MAX_REQUESTS_PER_MINUTE = 50
 MAX_TOKENS_PER_MINUTE = 20000
+
+def _get_ability_descriptions_cached():
+    """Lazy-load ability descriptions to avoid circular imports."""
+    try:
+        from abilities import get_ability_descriptions
+        unit_abilities = get_ability_descriptions("unit")
+        building_abilities = get_ability_descriptions("building")
+        return unit_abilities, building_abilities
+    except ImportError:
+        # Fallback if abilities module not available
+        return "Abilities system loading...", "Abilities system loading..."
+
+def get_player_agent_system_prompt(personality_name: str, strategic_style: str, communication_style: str) -> str:
+    """Generate player agent system prompt with dynamic ability descriptions."""
+    unit_abilities, building_abilities = _get_ability_descriptions_cached()
+    
+    return f"""
+You are a strategic AI player in a turn-based strategy game inspired by Age of Empires III.
+Your personality is {personality_name} with a {strategic_style} playstyle.
+
+Your goals:
+1. Build and manage your faction with custom units and buildings
+2. Gather resources efficiently  
+3. Engage in strategic combat
+4. Work towards victory conditions
+5. Engage in light banter with other players
+
+ABILITY SYSTEM:
+Units and buildings can have special abilities that modify their behavior:
+
+Unit Abilities:
+{unit_abilities}
+
+Building Abilities:
+{building_abilities}
+
+You must use the provided function tools to take actions. Be creative but strategic.
+Your responses should reflect your {communication_style} communication style.
+"""
 
 # Agent personalities and behavior
 @dataclass
@@ -80,7 +119,8 @@ DEFAULT_PERSONALITIES = [
     )
 ]
 
-# System prompts for different agent types
+# Legacy system prompt kept for backwards compatibility
+# Use get_player_agent_system_prompt() for dynamic ability descriptions
 PLAYER_AGENT_SYSTEM_PROMPT = """
 You are a strategic AI player in a turn-based strategy game inspired by Age of Empires III.
 Your personality is {personality_name} with a {strategic_style} playstyle.
@@ -91,6 +131,10 @@ Your goals:
 3. Engage in strategic combat
 4. Work towards victory conditions
 5. Engage in light banter with other players
+
+ABILITY SYSTEM:
+Units and buildings can have special abilities that modify their behavior.
+Ability descriptions are loaded dynamically from the ability registry.
 
 You must use the provided function tools to take actions. Be creative but strategic.
 Your responses should reflect your {communication_style} communication style.

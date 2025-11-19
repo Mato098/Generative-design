@@ -164,14 +164,21 @@ class GameState:
                 # Create starting units
                 from entities.unit import UnitType, UnitStats
                 
-                # Town center
+                # Town center with inherent capabilities
                 from entities.faction import Building, BuildingType
+                from config.building_config import get_building_template
+                
+                template = get_building_template("town_center")
                 town_center = Building(
                     name=f"{faction.name} Town Center",
                     building_type=BuildingType.TOWN_CENTER,
                     x=start_x,
                     y=start_y,
-                    resource_generation={"gold": 10, "food": 5}
+                    health=template["default_health"],
+                    max_health=template["default_health"],
+                    produces_units=template["default_produces_units"].copy(),
+                    resource_generation=template["default_resource_generation"].copy(),
+                    abilities=set(template.get("inherent_abilities", []))
                 )
                 faction.add_building(town_center)
                 self.get_tile(start_x, start_y).place_building(town_center.building_id)
@@ -269,7 +276,7 @@ class GameState:
             })
     
     def _update_visibility(self) -> None:
-        """Update tile visibility for all factions."""
+        """Update tile visibility for all factions with stealth support."""
         # Reset visibility
         for row in self.map_grid:
             for tile in row:
@@ -281,6 +288,9 @@ class GameState:
             for unit in faction.units:
                 if unit.stats.health > 0:
                     self._reveal_area(unit.x, unit.y, unit.stats.sight_range, faction.owner_id)
+        
+        # Apply stealth detection penalties
+        self._apply_stealth_detection()
     
     def _reveal_area(self, center_x: int, center_y: int, radius: int, agent_id: str) -> None:
         """Reveal tiles around a position."""
@@ -290,6 +300,30 @@ class GameState:
                     tile = self.get_tile(center_x + dx, center_y + dy)
                     if tile:
                         tile.set_visible(agent_id, True)
+    
+    def _apply_stealth_detection(self) -> None:
+        """Apply stealth ability to hide units from enemy detection."""
+        # For each faction, check if stealthed units should be hidden from others
+        for faction in self.factions.values():
+            for unit in faction.units:
+                if unit.stats.health > 0 and "stealth" in unit.abilities:
+                    tile = self.get_tile(unit.x, unit.y)
+                    if tile:
+                        # Hide from all non-allied factions unless adjacent
+                        for other_agent_id in self.factions.keys():
+                            if other_agent_id != faction.owner_id:
+                                # Check if any enemy unit is adjacent (within 1 tile)
+                                is_adjacent = False
+                                other_faction = self.factions[other_agent_id]
+                                for other_unit in other_faction.units:
+                                    distance = abs(unit.x - other_unit.x) + abs(unit.y - other_unit.y)
+                                    if distance <= 1:
+                                        is_adjacent = True
+                                        break
+                                
+                                # Hide if not adjacent
+                                if not is_adjacent:
+                                    tile.set_visible(other_agent_id, False)
     
     def _check_victory_conditions(self) -> Optional[str]:
         """Check if any player has won."""
@@ -351,7 +385,9 @@ class GameState:
                             "x": unit.x,
                             "y": unit.y,
                             "health": unit.stats.health,
-                            "max_health": unit.stats.max_health
+                            "max_health": unit.stats.max_health,
+                            "abilities": list(unit.abilities),  # Show abilities
+                            "is_fortified": unit.is_fortified
                         })
                 visible_enemy_units[other_agent_id] = visible_units
         

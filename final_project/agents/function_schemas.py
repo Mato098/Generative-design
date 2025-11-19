@@ -1,6 +1,27 @@
 """Function schemas for OpenAI function calling."""
 from typing import Dict, List, Any
 
+def _get_ability_info():
+    """Get dynamic ability information from registry."""
+    try:
+        from abilities import get_ability_list, get_ability_enum_description
+        unit_abilities = get_ability_list("unit")
+        building_abilities = get_ability_list("building")
+        unit_desc = get_ability_enum_description("unit")
+        building_desc = get_ability_enum_description("building")
+        return unit_abilities, building_abilities, unit_desc, building_desc
+    except ImportError:
+        # Fallback to hardcoded values if abilities module not available
+        return (
+            ["stealth", "heal", "build", "gather", "fortify", "charge", "range_attack", "splash"],
+            ["auto_attack", "wall", "heal_aura", "resource_bonus", "research", "train_faster"],
+            "abilities loading...",
+            "abilities loading..."
+        )
+
+# Cache ability info
+_UNIT_ABILITIES, _BUILDING_ABILITIES, _UNIT_DESC, _BUILDING_DESC = _get_ability_info()
+
 # Game action function schemas
 GAME_ACTION_FUNCTIONS = [
     {
@@ -208,9 +229,10 @@ FACTION_SETUP_FUNCTIONS = [
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "enum": ["stealth", "heal", "build", "gather", "fortify", "charge", "range_attack", "splash"]
+                        "enum": _UNIT_ABILITIES
                     },
-                    "description": "Special abilities for this unit"
+                    "description": f"Special abilities (max 3): {_UNIT_DESC}",
+                    "maxItems": 3
                 },
                 "resource_costs": {
                     "type": "object",
@@ -227,6 +249,72 @@ FACTION_SETUP_FUNCTIONS = [
                 }
             },
             "required": ["unit_name", "unit_description", "unit_category", "stats", "sprite_description"]
+        }
+    },
+    {
+        "name": "design_building",
+        "description": "Design a custom building type for your faction",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "building_name": {
+                    "type": "string",
+                    "description": "Name of the building type"
+                },
+                "building_description": {
+                    "type": "string",
+                    "description": "Description of the building's appearance and function"
+                },
+                "building_type": {
+                    "type": "string",
+                    "enum": ["town_center", "barracks", "archery_range", "stable", "workshop", "farm", "mine", "lumber_mill", "wall", "tower"],
+                    "description": "Base building category"
+                },
+                "health": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 200,
+                    "description": "Building health points"
+                },
+                "produces_units": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of unit types this building can produce"
+                },
+                "resource_generation": {
+                    "type": "object",
+                    "properties": {
+                        "gold": {"type": "integer", "minimum": 0},
+                        "wood": {"type": "integer", "minimum": 0},
+                        "food": {"type": "integer", "minimum": 0},
+                        "stone": {"type": "integer", "minimum": 0}
+                    },
+                    "description": "Resources generated per turn"
+                },
+                "abilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": _BUILDING_ABILITIES
+                    },
+                    "description": f"Special abilities (max 2): {_BUILDING_DESC}",
+                    "maxItems": 2
+                },
+                "resource_costs": {
+                    "type": "object",
+                    "properties": {
+                        "gold": {"type": "integer", "minimum": 0},
+                        "wood": {"type": "integer", "minimum": 0},
+                        "food": {"type": "integer", "minimum": 0},
+                        "stone": {"type": "integer", "minimum": 0}
+                    }
+                },
+                "sprite_description": {
+                    "type": "string",
+                    "description": "Detailed description of building appearance for sprite generation"
+                }
+            },
+            "required": ["building_name", "building_description", "building_type", "health", "sprite_description"]
         }
     }
 ]

@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 import uuid
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, Tuple
 
 from core.game_state import GameState, GamePhase
 from core.turn_manager import TurnManager, TurnProcessingResult
@@ -55,6 +55,7 @@ class GameEngine:
         """Register action processors with the turn manager."""
         self.turn_manager.register_action_processor("create_faction", self._process_create_faction)
         self.turn_manager.register_action_processor("design_unit", self._process_design_unit)
+        self.turn_manager.register_action_processor("design_building", self._process_design_building)
         self.turn_manager.register_action_processor("move_unit", self._process_move_unit)
         self.turn_manager.register_action_processor("attack_unit", self._process_attack_unit)
         self.turn_manager.register_action_processor("build_structure", self._process_build_structure)
@@ -323,6 +324,72 @@ class GameEngine:
         except Exception as e:
             return {"success": False, "error": f"Unit design error: {str(e)}"}
     
+    async def _process_design_building(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
+        """Process building design action."""
+        try:
+            from config.building_config import apply_building_template, get_inherent_abilities
+            
+            params = action.parameters
+            faction = game_state.factions.get(action.agent_id)
+            
+            if not faction:
+                return {"success": False, "error": "Faction not found"}
+            
+            building_type = params["building_type"]
+            
+            # Create building design with agent's specifications
+            agent_design = {
+                "name": params["building_name"],
+                "description": params["building_description"],
+                "building_type": building_type,
+                "health": params.get("health"),
+                "produces_units": params.get("produces_units"),
+                "resource_generation": params.get("resource_generation"),
+                "abilities": params.get("abilities", []),
+                "resource_costs": params.get("resource_costs"),
+                "sprite_description": params.get("sprite_description", "")
+            }
+            
+            # Apply building template to merge defaults with agent's design
+            # This ensures inherent abilities and default capabilities are present
+            building_design = apply_building_template(agent_design, building_type)
+            
+            # Add back non-template fields
+            building_design["name"] = agent_design["name"]
+            building_design["description"] = agent_design["description"]
+            building_design["building_type"] = building_type
+            building_design["sprite_description"] = agent_design["sprite_description"]
+            
+            # Convert abilities set back to list for storage
+            building_design["abilities"] = list(building_design["abilities"])
+            
+            # Store custom building design
+            if not hasattr(faction, 'custom_building_designs'):
+                faction.custom_building_designs = {}
+            
+            building_name = params["building_name"]
+            if building_name in faction.custom_building_designs:
+                return {
+                    "success": False,
+                    "error": "Building design name already exists"
+                }
+            
+            faction.custom_building_designs[building_name] = building_design
+            
+            # Get inherent abilities for feedback
+            inherent = get_inherent_abilities(building_type)
+            message = f"Building design '{building_name}' created"
+            if inherent:
+                message += f" (inherent abilities: {', '.join(inherent)})"
+            
+            return {
+                "success": True,
+                "message": message
+            }
+                
+        except Exception as e:
+            return {"success": False, "error": f"Building design error: {str(e)}"}
+    
     async def _process_move_unit(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
         """Process unit movement action."""
         try:
@@ -402,8 +469,8 @@ class GameEngine:
             if not target:
                 return {"success": False, "error": "Target unit not found"}
             
-            # Perform attack
-            attack_result = attacker.attack(target)
+            # Perform attack with game_state for ability context
+            attack_result = attacker.attack(target, game_state)
             
             if attack_result["success"]:
                 # Remove target if destroyed
@@ -435,9 +502,115 @@ class GameEngine:
         return {"success": False, "error": "Building construction not yet implemented"}
     
     async def _process_create_unit(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
-        """Process unit creation action."""
-        # Placeholder implementation
-        return {"success": False, "error": "Unit creation not yet implemented"}
+        """Process unit creation action - instant if resources available."""
+        try:
+            from entities.unit import Unit, UnitType, UnitStats
+            
+            params = action.parameters
+            faction = game_state.factions.get(action.agent_id)
+            
+            if not faction:
+                return {"success": False, "error": "Faction not found"}
+            
+            building_id = params["building_id"]
+            unit_type = params["unit_type"]
+            quantity = params.get("quantity", 1)
+            
+            # Get the building
+            building = faction.get_building(building_id)
+            if not building:
+                return {"success": False, "error": "Building not found"}
+            
+            if not building.is_construction_complete:
+                return {"success": False, "error": "Building still under construction"}
+            
+            # Check if building can produce this unit type
+            if unit_type not in building.produces_units:
+                return {"success": False, "error": f"Building cannot produce {unit_type}"}
+            
+            # Get unit design (custom or default)
+            unit_design = faction.custom_unit_designs.get(unit_type)
+            if not unit_design:
+                return {"success": False, "error": f"Unit design '{unit_type}' not found"}
+            
+            created_units = []
+            total_cost = {}
+            
+            # Calculate total cost
+            creation_cost = unit_design.get("creation_cost", {"gold": 100})
+            for resource, amount in creation_cost.items():
+                total_cost[resource] = amount * quantity
+            
+            # Check if faction has enough resources
+            if not faction.can_afford(total_cost):
+                return {"success": False, "error": "Insufficient resources", "required": total_cost}
+            
+            # Deduct resources
+            faction.spend_resources(total_cost)
+            
+            # Create units near the building
+            for i in range(quantity):
+                # Find adjacent tile for unit placement
+                placement_pos = self._find_adjacent_free_tile(game_state, building.x, building.y)
+                if not placement_pos:
+                    # Refund remaining units
+                    remaining = quantity - i
+                    refund = {r: creation_cost[r] * remaining for r in creation_cost}
+                    faction.add_resources(refund)
+                    break
+                
+                # Create unit from design
+                stats_data = unit_design["stats"]
+                unit = Unit(
+                    name=unit_design["name"],
+                    unit_type=UnitType[unit_design["unit_category"].upper()],
+                    faction_id=faction.faction_id,
+                    owner_id=action.agent_id,
+                    x=placement_pos[0],
+                    y=placement_pos[1],
+                    stats=UnitStats(
+                        health=stats_data["health"],
+                        max_health=stats_data["health"],
+                        attack=stats_data["attack"],
+                        defense=stats_data["defense"],
+                        movement_speed=stats_data["movement_speed"],
+                        attack_range=stats_data.get("attack_range", 1),
+                        sight_range=stats_data.get("sight_range", 3)
+                    ),
+                    abilities=set(unit_design.get("abilities", [])),
+                    creation_cost=creation_cost,
+                    sprite=None  # Sprites would be generated separately
+                )
+                
+                # Add to faction and place on map
+                if faction.add_unit(unit):
+                    game_state.get_tile(unit.x, unit.y).place_unit(unit.unit_id)
+                    created_units.append(unit.unit_id)
+            
+            return {
+                "success": True,
+                "units_created": len(created_units),
+                "unit_ids": created_units,
+                "cost": total_cost,
+                "building_id": building_id
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": f"Unit creation error: {str(e)}"}
+    
+    def _find_adjacent_free_tile(self, game_state: GameState, x: int, y: int) -> Optional[Tuple[int, int]]:
+        """Find a free tile adjacent to given coordinates."""
+        # Check 8 surrounding tiles
+        offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+        
+        for dx, dy in offsets:
+            new_x, new_y = x + dx, y + dy
+            if 0 <= new_x < game_state.map_width and 0 <= new_y < game_state.map_height:
+                tile = game_state.get_tile(new_x, new_y)
+                if tile and tile.can_place_unit():
+                    return (new_x, new_y)
+        
+        return None
     
     async def _process_fortify_unit(self, action: AgentAction, game_state: GameState) -> Dict[str, Any]:
         """Process unit fortification action."""

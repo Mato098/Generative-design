@@ -12,11 +12,12 @@ from config.llm_config import SPRITE_GENERATION_SYSTEM_PROMPT
 
 # Import caching system and game config
 try:
-    from data.cache.faction_cache import FactionCache
+    from sprites.cache import SpriteCache
     CACHING_ENABLED = True
 except ImportError:
+    SpriteCache = None
     CACHING_ENABLED = False
-    logging.warning("Faction caching not available")
+    logging.warning("Sprite caching not available")
 
 # Import game config for cache settings
 try:
@@ -191,10 +192,10 @@ class SpriteGenerator:
         self.cache_mode = cache_mode if cache_mode is not None else SPRITE_CACHE_MODE
         self.save_to_cache = save_to_cache if save_to_cache is not None else CACHE_SAVE_ENABLED
         
-        self.cache = FactionCache() if self.use_cache or self.save_to_cache else None
+        self.cache = SpriteCache() if (self.use_cache or self.save_to_cache) and SpriteCache else None
         
         # Log the current cache configuration
-        self.logger.info(f"🗄️  Cache config: use={self.use_cache}, mode={self.cache_mode}, save={self.save_to_cache}")
+        self.logger.info(f"Cache config: use={self.use_cache}, mode={self.cache_mode}, save={self.save_to_cache}")
         
         # Generation statistics
         self.sprites_generated = 0
@@ -204,13 +205,13 @@ class SpriteGenerator:
     async def generate_sprite(self, request: SpriteGenerationRequest) -> Optional[Sprite]:
         """Generate a sprite from a request."""
         try:
-            self.logger.info(f"🎨 Generating sprite via LLM: {request.name}")
+            self.logger.info(f"Generating sprite via LLM: {request.name}")
             
             # Create generation prompt
             prompt = self._build_generation_prompt(request)
             
             # Get LLM response using structured output
-            self.logger.info(f"🤖 Calling LLM for sprite: {request.name}")
+            self.logger.info(f"Calling LLM for sprite: {request.name}")
             response = await self.llm_interface.make_structured_sprite_call(
                 system_prompt=SPRITE_GENERATION_SYSTEM_PROMPT,
                 user_message=prompt
@@ -219,11 +220,11 @@ class SpriteGenerator:
             self.sprites_generated += 1
             
             # Debug logging
-            self.logger.info(f"🔍 Sprite response - Success: {response.success}, Function calls: {len(response.function_calls) if response.function_calls else 0}")
+            self.logger.info(f"Sprite response - Success: {response.success}, Function calls: {len(response.function_calls) if response.function_calls else 0}")
             if not response.success:
-                self.logger.error(f"🔍 Response error: {response.error}")
+                self.logger.error(f"Response error: {response.error}")
             if response.function_calls:
-                self.logger.info(f"🔍 Function call names: {[call.get('name', 'unknown') for call in response.function_calls]}")
+                self.logger.info(f"Function call names: {[call.get('name', 'unknown') for call in response.function_calls]}")
             
             if response.success and response.function_calls:
                 func_call = response.function_calls[0]

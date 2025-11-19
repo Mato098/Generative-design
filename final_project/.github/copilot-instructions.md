@@ -1,240 +1,107 @@
 # GitHub Copilot Instructions
 
 ## Overview
-This is a **Multi-Agent LLM Strategy Game** - a turn-based strategy game where AI agents use Large Language Models to create custom factions, design units, and compete strategically. Think Age of Empires III with AI agents as players.
+**Multi-Agent LLM Strategy Game** - 4 AI agents create custom factions, design units with unique abilities, and compete in turn-based combat. LLMs handle all creative decisions; game engine enforces rules.
 
-## Project Structure & API Reference
+## Critical Architecture
 
-### Folder Structure
-```
-├── agents/                    # AI agent framework
-│   ├── base_agent.py         # BaseAgent(ABC): agent interface 
-│   ├── player_agent.py       # PlayerAgent: main AI player logic
-│   ├── admin_agent.py        # AdminAgent: game balance oversight  
-│   ├── llm_interface.py      # LLMInterface: OpenAI integration
-│   ├── function_schemas.py   # LLM function definitions
-│   └── mixins.py            # Agent behavior mixins
-├── core/                     # Game engine and state management
-│   ├── game_engine.py        # GameEngine: central coordinator
-│   ├── game_state.py         # GameState: world state container
-│   └── turn_manager.py       # TurnManager: turn processing
-├── entities/                 # Game objects and data structures  
-│   ├── faction.py            # Faction, FactionTheme: player empires
-│   ├── unit.py              # Unit, UnitStats: military units
-│   ├── sprite.py            # Sprite: visual representations  
-│   └── tile.py              # Tile: map terrain system
-├── sprites/                  # Visual generation system
-│   ├── generator.py          # SpriteGenerator: LLM sprite creation
-│   └── cache.py             # SpriteCache: sprite caching
-├── config/                   # Configuration and settings
-│   ├── game_config.py        # Environment-based game settings
-│   └── llm_config.py         # LLM personalities and prompts
-├── cache/                    # Faction and sprite caching
-│   └── faction_cache.py      # FactionCache: faction data persistence
-├── tests/                    # Comprehensive test suite
-│   ├── run_tests.py          # Test runner with mocked/real LLM modes
-│   └── test_*.py            # Modular test files
-└── main.py                   # Entry point and demo mode
-```
+**3-Phase Game Flow** (`main.py` → `core/game_engine.py`):
+1. **SETUP**: Agents call `create_faction()`/`design_unit()` functions → `GameEngine.process_faction_creation()`
+2. **BALANCING**: AdminAgent reviews factions, suggests adjustments
+3. **PLAYING**: Turn-based loop with `PlayerAgent.make_decision()` → actions → `GameEngine` processors
 
-### Core API Classes & Methods
+**Key Pattern**: Agents return `List[AgentAction]` (action_type, parameters, reasoning) → Engine processors update `GameState`
 
-#### Agent Framework
+## Ability System (FULLY DYNAMIC)
+
+**NO hardcoded ability lists!** All descriptions auto-generated from registry:
+
 ```python
-# agents/base_agent.py
-class BaseAgent(ABC):
-    async def make_decision(game_state_view: Dict) -> List[AgentAction]
-    def record_action_result(action: AgentAction, result: Dict)
+# Adding ability (2 steps):
+# 1. Create class in abilities/unit_abilities.py
+class PoisonAbility(Ability):
+    description = "Deals 5 damage/turn for 3 turns"  # Used everywhere!
 
-# agents/player_agent.py  
-class PlayerAgent(BaseAgent, AgentPersonalityMixin, AgentMemoryMixin):
-    async def _handle_faction_setup(game_state_view: Dict) -> List[AgentAction]
-    async def _handle_gameplay_turn(game_state_view: Dict) -> List[AgentAction]
-    async def _try_load_cached_complete_faction() -> Optional[List[AgentAction]]
+# 2. Register in abilities/__init__.py
+ABILITY_REGISTRY.register("poison", PoisonAbility(), "unit")
+# Done! Auto-appears in agent prompts/schemas/docs
 
-# agents/admin_agent.py
-class AdminAgent(BaseAgent):
-    async def _edit_faction_units(factions: Dict) -> List[AgentAction] 
-    def record_balance_issue(issue: Dict)
-
-# agents/llm_interface.py
-class LLMInterface:
-    async def make_function_call(system_prompt, user_message, functions) -> LLMResponse
+# Dynamic loading:
+from abilities import get_ability_descriptions, get_ability_list
+prompt = f"Abilities:\n{get_ability_descriptions('unit')}"  # Pulls from .description
+enum = get_ability_list("unit")  # For function schemas
 ```
 
-#### Game Engine & State
-```python
-# core/game_engine.py
-class GameEngine:
-    async def process_faction_creation(agent_id: str, faction_data: List) -> bool
-    async def _process_edit_faction_unit(action: AgentAction, game_state: GameState) -> Dict
-    def _register_action_processors()
-
-# core/game_state.py  
-class GameState:
-    def get_agent_view(agent_id: str) -> Dict[str, Any]
-    def add_faction(faction: Faction)
-    def advance_turn() -> str
-```
-
-#### Entities & Data
-```python
-# entities/faction.py
-@dataclass
-class Faction:
-    name: str
-    owner_id: str  
-    theme: FactionTheme
-    custom_unit_designs: Dict[str, Dict]
-    resources: Dict[str, int]
-
-@dataclass  
-class FactionTheme:
-    name: str
-    description: str
-    color_scheme: List[str]
-    architectural_style: str
-    unit_naming_convention: str
-
-# entities/unit.py
-@dataclass
-class Unit:
-    unit_type: str
-    stats: UnitStats
-    position: tuple
-    faction_id: str
-
-# sprites/generator.py
-class SpriteGenerator:
-    async def generate_faction_sprites(faction_data: Dict) -> Dict[str, Sprite]
-```
-
-#### Caching System
-```python
-# cache/faction_cache.py
-class FactionCache:
-    def get_similar_faction(personality: str, mode: str) -> Optional[CachedFaction]
-    def store_faction(faction_data: CachedFaction)
-
-# sprites/cache.py  
-class SpriteCache:
-    def get_sprite(cache_key: str) -> Optional[Sprite]
-    def store_sprite(cache_key: str, sprite: Sprite)
-```
-
-## Architecture & Key Components
-
-### Core Game Flow
-1. **Setup Phase**: Agents create factions using `PlayerAgent._handle_faction_setup()` → LLM calls → `GameEngine.process_faction_creation()`
-2. **Sprite Generation**: Custom units get visual sprites via `SpriteGenerator.generate_faction_sprites()`  
-3. **Gameplay Phase**: Turn-based decisions through `PlayerAgent.make_decision()` → `TurnManager`
-4. **State Management**: Centralized in `GameState` with agent-specific views via `get_agent_view()`
-
-### Agent Architecture Pattern
-All agents inherit from `BaseAgent` and use mixins:
-```python
-class PlayerAgent(BaseAgent, AgentPersonalityMixin, AgentMemoryMixin, AgentCommunicationMixin)
-```
-- **Function-based Actions**: Agents use structured LLM function calling via `LLMInterface.make_function_call()`
-- **Personality System**: Each agent has predefined personality traits affecting strategy (see `config/llm_config.py`)
-- **Action Pattern**: All agent decisions return `List[AgentAction]` with `action_type`, `parameters`, `reasoning`
-
-### Caching Strategy (Critical for API Costs)
-**Environment-controlled caching** via `.env` variables:
-```bash
-FACTION_CACHE_ENABLED=true     # Use cached faction data
-SPRITE_CACHE_ENABLED=false     # Always generate fresh sprites  
-CACHE_SAVE_ENABLED=true        # Save new generations to cache
-FACTION_CACHE_MODE=similar     # "exact", "similar", "random"
-```
-
-**Cache Flow**: `PlayerAgent._try_load_cached_complete_faction()` → `FactionCache.get_similar_faction()` → Convert back to `AgentAction` objects
-
-### LLM Integration Pattern
-- **Structured Calls**: Use function schemas from `agents/function_schemas.py`
-- **Response Handling**: All LLM calls return `LLMResponse` objects with `success`, `function_calls`, `error`
-- **Cost Management**: Token usage tracked in `LLMInterface.token_usage`
-- **Error Resilience**: Always check `response.success` before processing `function_calls`
+**Integration**: `config/llm_config.py::get_player_agent_system_prompt()`, `agents/function_schemas.py::_get_ability_info()`, `agents/player_agent.py::_create_unit_designs()` all call `abilities/utils.py` functions.
 
 ## Development Workflows
 
-### Running & Testing
+**Testing**:
 ```bash
-# Main game
-python main.py                                 # Full game
-python main.py --demo                          # Demo mode
-
-# Test suites  
-python tests/run_tests.py                      # All mocked tests (free)
-python tests/run_tests.py --real-llm          # Real LLM tests (costs $)
-python tests/run_tests.py -m test_game_state  # Specific module
+python tests/run_tests.py              # Mocked (free)
+python tests/test_dynamic_abilities.py # Verify ability autodiscovery
+python tests/run_tests.py --real-llm  # Live API calls (costs $)
+python main.py --demo                  # System demo
 ```
 
-### Environment Setup
-1. Copy `.env.example` → `.env` and add `OPENAI_API_KEY`
-2. **Development**: Set `*_CACHE_ENABLED=true` to minimize costs
-3. **Testing**: Set `CACHE_SAVE_ENABLED=false` to avoid polluting cache
-4. **Production**: Set `*_CACHE_ENABLED=false` for fresh content
+**Debugging LLM**:
+- `.env`: `DEBUG_LLM_RESPONSES=true` → full prompt/response logging
+- `LLMInterface.token_usage` tracks costs
+- Agents only see `game_state.get_agent_view(agent_id)` (fog of war applied)
 
-### Debugging LLM Issues
-- Set `DEBUG_LLM_RESPONSES=true` in `.env` for full LLM call logging
-- Check `LLMInterface.token_usage` for cost tracking
-- Use mocked tests (`tests/test_llm_integration.py`) before expensive real tests
+**Caching** (`.env` controlled):
+```bash
+FACTION_CACHE_ENABLED=true    # Dev mode: reuse factions
+SPRITE_CACHE_ENABLED=false    # Fresh sprites
+FACTION_CACHE_MODE=similar    # "exact"|"similar"|"random"
+```
 
-## Key Patterns & Conventions
+## Critical Patterns
 
-### Agent Decision Making
+**Agent Decisions**:
 ```python
-async def make_decision(self, game_state_view: Dict[str, Any]) -> List[AgentAction]:
-    # 1. Analyze game phase
-    phase = game_state_view.get("phase", "playing")
-    
-    # 2. Route to appropriate handler
+# agents/player_agent.py
+async def make_decision(game_state_view):
+    phase = game_state_view["phase"]  # "setup"|"playing"
     if phase == "setup":
-        return await self._handle_faction_setup(game_state_view)
+        return await _handle_faction_setup()  # LLM creates faction
     else:
-        return await self._handle_gameplay_turn(game_state_view)
+        return await _handle_gameplay_turn()  # LLM chooses actions
 ```
 
-### Function Schema Integration
-- Function definitions in `agents/function_schemas.py` must match LLM capabilities
-- Use `get_functions_for_phase()` to get appropriate functions per game phase
-- Always validate function parameters in action processors
+**Function Schemas**: `agents/function_schemas.py::get_functions_for_phase()` returns phase-appropriate functions. Agents use structured function calling, not free text.
 
-### Entity Relationship Pattern
+**Ability Execution**:
+```python
+from abilities import ABILITY_REGISTRY, AbilityContext
+context = AbilityContext(owner=unit, target=enemy, action_type="attack")
+results = ABILITY_REGISTRY.execute_abilities(unit.abilities, context)
+# Abilities stored as Set[str], resolved at runtime
 ```
-GameState → Factions → Units/Buildings
-         → Map (Tiles)
-         → TurnManager
-```
-- **Factions** own units/buildings and have themes + custom unit designs
-- **Units** have stats, positions, and can be custom-designed by agents
-- **Game State** provides filtered views to agents (fog of war via `get_agent_view()`)
 
-### Sprite Generation Integration
-- Custom units automatically get sprites via `SpriteGenerator` in setup phase
-- Sprites cached separately from faction data using `SPRITE_CACHE_*` settings
-- ASCII art generation with 16x16 pixel grids and color palettes
+## Common Tasks
 
-## Data Flow Examples
+**Add Agent Action**:
+1. Add schema to `agents/function_schemas.py` (e.g., `GAME_ACTION_FUNCTIONS`)
+2. Add processor in `core/game_engine.py::_register_action_processors()`
+3. Update `agents/player_agent.py` decision logic
 
-**Faction Creation**: `PlayerAgent._create_faction()` → LLM call with `create_faction` function → `AgentAction` → `GameEngine._process_create_faction()` → `Faction` object in `GameState`
+**Modify Agent Behavior**: `config/llm_config.py::get_player_agent_system_prompt()` + `agents/player_agent.py::_create_unit_designs()` control prompts
 
-**Unit Design**: `PlayerAgent._create_unit_designs()` → LLM calls with `design_unit` function → `AgentAction` → `GameEngine._process_design_unit()` → `Faction.custom_unit_designs`
+**Change Game Rules**: `core/game_engine.py` action processors + `entities/unit.py::attack()`
 
-**Sprite Pipeline**: `SpriteGenerator.generate_faction_sprites()` → Extract custom unit data → LLM sprite generation → `Sprite` objects with pixel data
+## Key Files
+- **Entry**: `main.py` (GameLauncher orchestrates everything)
+- **Brain**: `agents/player_agent.py` (LLM decision-making)
+- **Rules**: `core/game_engine.py` (action processors)
+- **Abilities**: `abilities/*.py` (self-documenting via registry)
+- **Prompts**: `config/llm_config.py` (dynamic generation)
+- **Buildings**: `config/building_config.py` (templates with inherent capabilities)
 
-## Critical Files to Understand
-- `agents/base_agent.py` - Agent interface and action pattern
-- `agents/player_agent.py` - Main AI player logic and caching
-- `core/game_engine.py` - Action processing and game state updates  
-- `agents/function_schemas.py` - LLM function definitions
-- `config/game_config.py` - Environment-based configuration
-- `sprites/generator.py` - LLM-based sprite generation with caching
-
-## Common Gotchas
-- **LLM Costs**: Always use caching in development, disable for fresh content
-- **Async Patterns**: Agent decisions are async, use proper `await` handling
-- **Function Validation**: LLM responses may have invalid function parameters, always validate
-- **Game State Views**: Agents only see filtered game state, not full state
-- **Action Processing**: Actions must be processed through `GameEngine` to update state
+## Important Notes
+- **Building Templates**: Each building type has inherent capabilities (e.g., `town_center` always produces `worker`, `tower` has `auto_attack`)
+- Stealth detection: hidden unless adjacent (≤1 tile distance)
+- Fortify: only if unit hasn't moved this turn (`unit.has_moved`)
+- Charge: only if unit moved before attacking
+- All content (factions/units/buildings) is LLM-generated
+- Abilities use strings (`Set[str]`), not enums, for extensibility

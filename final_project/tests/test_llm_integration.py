@@ -13,7 +13,7 @@ import unittest
 import asyncio
 import os
 import sys
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from pathlib import Path
 
 # Add project root to path
@@ -72,15 +72,23 @@ class TestLLMIntegration(unittest.TestCase):
         self.assertEqual(len(self.llm_interface.conversation_history), 0)
     
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'sk-test-key'})
-    @patch('openai.OpenAI')
-    def test_mock_llm_response(self, mock_openai_class):
+    @patch('agents.llm_interface.openai')
+    @patch('agents.llm_interface.OPENAI_API_KEY', 'sk-test-key')
+    def test_mock_llm_response(self, mock_openai_module):
         """Test LLM response parsing with mocked response."""
+        # Mock the OpenAI client
+        mock_client = MagicMock()
+        mock_openai_module.OpenAI.return_value = mock_client
+        # Make sure openai is truthy
+        mock_openai_module.__bool__ = lambda self: True
+        
         # This test validates that LLM interface can handle responses correctly
         llm = LLMInterface("test_agent")
         
-        # Test that the client initialization works
+        # Test that the client initialization works with mocked API
         self.assertIsNotNone(llm.client)
         self.assertEqual(llm.agent_id, "test_agent")
+        mock_openai_module.OpenAI.assert_called_once_with(api_key='sk-test-key')
         
     def test_debug_flag_configuration(self):
         """Test debug flag configuration."""
