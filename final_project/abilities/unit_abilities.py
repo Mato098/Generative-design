@@ -46,6 +46,9 @@ class HealAbility(Ability):
     
     def apply(self, context: AbilityContext) -> Dict[str, Any]:
         """Heal the target unit."""
+        if not context.target:
+            return {"healed": False, "error": "No target specified"}
+        
         if hasattr(context.target, 'heal'):
             context.target.heal(self.heal_amount)
             return {
