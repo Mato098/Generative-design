@@ -1,1 +1,0 @@
-"""Configuration package for the multi-agent strategy game."""

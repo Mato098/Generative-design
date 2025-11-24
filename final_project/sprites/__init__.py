@@ -1,1 +1,0 @@
-"""Sprite generation and management package."""

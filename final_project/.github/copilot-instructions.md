@@ -1,107 +1,277 @@
-# GitHub Copilot Instructions
+# GitHub Copilot Instructions for LLM Strategy Game
 
-## Overview
-**Multi-Agent LLM Strategy Game** - 4 AI agents create custom factions, design units with unique abilities, and compete in turn-based combat. LLMs handle all creative decisions; game engine enforces rules.
+## Project Overview
+This is a turn-based strategy game designed for Large Language Model (LLM) agents using OpenAI function calling. The game features a dual-component architecture with a Node.js backend for game logic and P5.js frontend for real-time visualization. AI agents control factions while an Observer (god mode) can intervene with divine powers.
 
-## Critical Architecture
+## Core Architecture Principles
 
-**3-Phase Game Flow** (`main.py` → `core/game_engine.py`):
-1. **SETUP**: Agents call `create_faction()`/`design_unit()` functions → `GameEngine.process_faction_creation()`
-2. **BALANCING**: AdminAgent reviews factions, suggests adjustments
-3. **PLAYING**: Turn-based loop with `PlayerAgent.make_decision()` → actions → `GameEngine` processors
+### 1. Dual-Component Design
+- **Backend (Node.js/Express)**: Game logic, AI integration, WebSocket communication
+- **Frontend (P5.js)**: Visualization, animation queue, user interface
+- **Separation of Concerns**: Game state managed server-side, visualization client-side
+- **Real-time Communication**: WebSocket for live updates and action broadcasting
 
-**Key Pattern**: Agents return `List[AgentAction]` (action_type, parameters, reasoning) → Engine processors update `GameState`
-
-## Ability System (FULLY DYNAMIC)
-
-**NO hardcoded ability lists!** All descriptions auto-generated from registry:
-
-```python
-# Adding ability (2 steps):
-# 1. Create class in abilities/unit_abilities.py
-class PoisonAbility(Ability):
-    description = "Deals 5 damage/turn for 3 turns"  # Used everywhere!
-
-# 2. Register in abilities/__init__.py
-ABILITY_REGISTRY.register("poison", PoisonAbility(), "unit")
-# Done! Auto-appears in agent prompts/schemas/docs
-
-# Dynamic loading:
-from abilities import get_ability_descriptions, get_ability_list
-prompt = f"Abilities:\n{get_ability_descriptions('unit')}"  # Pulls from .description
-enum = get_ability_list("unit")  # For function schemas
+### 2. Module Structure
+```
+src/
+├── game/          # Core game logic
+│   ├── GameEngine.js      # Main game loop and turn management
+│   ├── GameState.js       # State management and grid operations
+│   ├── ActionValidator.js # Rule enforcement and action validation
+│   ├── Tile.js           # Individual tile logic
+│   └── Faction.js        # Faction/player management
+├── ai/            # AI integration
+│   ├── AIAgent.js         # OpenAI integration and conversation
+│   └── FunctionSchemas.js # Function calling definitions
+├── observer/      # Observer/god mode functionality
+│   └── ObserverInterface.js
+└── server/        # Server utilities
+    └── WebSocketManager.js
 ```
 
-**Integration**: `config/llm_config.py::get_player_agent_system_prompt()`, `agents/function_schemas.py::_get_ability_info()`, `agents/player_agent.py::_create_unit_designs()` all call `abilities/utils.py` functions.
+## Development Conventions
 
-## Development Workflows
+### ES6 Modules
+- **All source files use ES6 modules** (`import`/`export` syntax)
+- **Package.json specifies `"type": "module"`**
+- **Test files use CommonJS** for Jest compatibility (`.test.js` files only)
+- Always use relative paths with `.js` extension for imports
 
-**Testing**:
-```bash
-python tests/run_tests.py              # Mocked (free)
-python tests/test_dynamic_abilities.py # Verify ability autodiscovery
-python tests/run_tests.py --real-llm  # Live API calls (costs $)
-python main.py --demo                  # System demo
+### File Organization
+- **Class-based architecture**: Each major component is a class in its own file
+- **Single responsibility**: Each class handles one domain (GameEngine = game loop, GameState = state management)
+- **Dependency injection**: Classes receive dependencies via constructor or setter methods
+
+### Naming Conventions
+```javascript
+// Classes: PascalCase
+class GameEngine {}
+class ActionValidator {}
+
+// Files: PascalCase matching class name
+GameEngine.js
+ActionValidator.js
+
+// Constants: SCREAMING_SNAKE_CASE
+const ANIMATION_TIMINGS = {};
+const FACTION_COLORS = {};
+
+// Variables/methods: camelCase
+processNextTurn()
+validateAction()
 ```
 
-**Debugging LLM**:
-- `.env`: `DEBUG_LLM_RESPONSES=true` → full prompt/response logging
-- `LLMInterface.token_usage` tracks costs
-- Agents only see `game_state.get_agent_view(agent_id)` (fog of war applied)
+## Game Logic Patterns
 
-**Caching** (`.env` controlled):
-```bash
-FACTION_CACHE_ENABLED=true    # Dev mode: reuse factions
-SPRITE_CACHE_ENABLED=false    # Fresh sprites
-FACTION_CACHE_MODE=similar    # "exact"|"similar"|"random"
+### State Management
+```javascript
+// GameState is the single source of truth
+// Always validate coordinates before accessing grid
+getTile(x, y) {
+  if (x < 0 || x >= 10 || y < 0 || y >= 10) return null;
+  return this.grid[y][x];
+}
+
+// Resources use floating point for precision
+faction.resources = { R: 10.0, F: 5.0, I: 3.0 };
+
+// Turn management follows strict order: Faction A → Faction B → Observer
+const turnOrder = [...factionNames, 'Observer'];
 ```
 
-## Critical Patterns
-
-**Agent Decisions**:
-```python
-# agents/player_agent.py
-async def make_decision(game_state_view):
-    phase = game_state_view["phase"]  # "setup"|"playing"
-    if phase == "setup":
-        return await _handle_faction_setup()  # LLM creates faction
-    else:
-        return await _handle_gameplay_turn()  # LLM chooses actions
+### Action Validation
+- **No retry mechanism**: Invalid actions are immediately rejected
+- **Comprehensive validation**: Check coordinates, resources, faction ownership
+- **Early returns**: Validate cheapest constraints first
+```javascript
+// Pattern for all action validators
+validateAction(gameState, factionName, parameters) {
+  // 1. Coordinate validation
+  if (!this.isValidCoordinate(x, y)) return { valid: false, reason: "Invalid coordinates" };
+  
+  // 2. Resource validation
+  if (faction.resources.R < cost) return { valid: false, reason: "Insufficient resources" };
+  
+  // 3. Game rule validation
+  if (tile.owner !== factionName) return { valid: false, reason: "Not your tile" };
+  
+  return { valid: true };
+}
 ```
 
-**Function Schemas**: `agents/function_schemas.py::get_functions_for_phase()` returns phase-appropriate functions. Agents use structured function calling, not free text.
-
-**Ability Execution**:
-```python
-from abilities import ABILITY_REGISTRY, AbilityContext
-context = AbilityContext(owner=unit, target=enemy, action_type="attack")
-results = ABILITY_REGISTRY.execute_abilities(unit.abilities, context)
-# Abilities stored as Set[str], resolved at runtime
+### AI Integration Patterns
+```javascript
+// OpenAI conversation history is maintained per agent
+// Function schemas define available actions
+// Context includes full game state + recent observer actions
+const context = {
+  gameState: this.gameState.getPublicState(),
+  faction: faction,
+  availableActions: ['Reinforce', 'Assault', 'Convert', ...],
+  recentObserverActions: this.gameState.observerActions.slice(-3)
+};
 ```
 
-## Common Tasks
+## Testing Architecture
 
-**Add Agent Action**:
-1. Add schema to `agents/function_schemas.py` (e.g., `GAME_ACTION_FUNCTIONS`)
-2. Add processor in `core/game_engine.py::_register_action_processors()`
-3. Update `agents/player_agent.py` decision logic
+### Jest Configuration
+- **Environment**: Node.js testing environment
+- **Module type**: Tests use CommonJS (`require`/`module.exports`)
+- **Setup file**: `tests/setup.js` provides global utilities and mocks
+- **Coverage**: Collects from all `src/**/*.js` files
 
-**Modify Agent Behavior**: `config/llm_config.py::get_player_agent_system_prompt()` + `agents/player_agent.py::_create_unit_designs()` control prompts
+### Test Organization
+```
+tests/
+├── unit/          # Unit tests for individual classes
+├── integration/   # Cross-component integration tests
+└── setup.js       # Global test configuration and utilities
+```
 
-**Change Game Rules**: `core/game_engine.py` action processors + `entities/unit.py::attack()`
+### Testing Patterns
+```javascript
+// Mock heavy dependencies (OpenAI, WebSocket)
+jest.mock('openai');
+jest.mock('ws');
 
-## Key Files
-- **Entry**: `main.py` (GameLauncher orchestrates everything)
-- **Brain**: `agents/player_agent.py` (LLM decision-making)
-- **Rules**: `core/game_engine.py` (action processors)
-- **Abilities**: `abilities/*.py` (self-documenting via registry)
-- **Prompts**: `config/llm_config.py` (dynamic generation)
-- **Buildings**: `config/building_config.py` (templates with inherent capabilities)
+// Use CommonJS in test files only
+const { GameEngine } = require('../../src/game/GameEngine.js');
 
-## Important Notes
-- **Building Templates**: Each building type has inherent capabilities (e.g., `town_center` always produces `worker`, `tower` has `auto_attack`)
-- Stealth detection: hidden unless adjacent (≤1 tile distance)
-- Fortify: only if unit hasn't moved this turn (`unit.has_moved`)
-- Charge: only if unit moved before attacking
-- All content (factions/units/buildings) is LLM-generated
-- Abilities use strings (`Set[str]`), not enums, for extensibility
+// Global test utilities in setup.js
+global.createMockGameState = () => ({ /* mock structure */ });
+
+// Async test patterns
+test('should process turn correctly', async () => {
+  const result = await gameEngine.processTurn();
+  expect(result.success).toBe(true);
+});
+```
+
+## WebSocket Communication Patterns
+
+### Server-to-Client Messages
+```javascript
+// Standard message format
+{
+  type: 'messageType',
+  data: payload
+}
+
+// Key message types:
+// - 'gameState': Full state update
+// - 'actionsExecuted': Action results with animation data
+// - 'observerTurnStarted': Observer intervention phase
+// - 'gameEnded': Victory condition reached
+```
+
+### Client Animation System
+- **Animation queue**: Sequential processing of action animations
+- **Predetermined timings**: Each action type has fixed animation duration
+- **Non-blocking**: Animations don't affect game logic timing
+```javascript
+const ANIMATION_TIMINGS = {
+  'Assault': 1200,
+  'Convert': 1000,
+  'Meteor': 1500,
+  'default': 600
+};
+```
+
+## Observer/God Mode Integration
+
+### Divine Powers
+- **Observer actions are queued**: Not executed immediately
+- **Context sharing**: Observer actions broadcast to AI agents
+- **Power categories**: Blessing (positive), Smiting (negative), Environmental (meteors)
+
+### Implementation Pattern
+```javascript
+// Observer actions don't follow normal validation
+// They have special rules and immediate effects
+executeObserverAction(action) {
+  switch(action.type) {
+    case 'bless':
+      this.applyBlessing(action.parameters);
+      break;
+    case 'smite':
+      this.applySmite(action.parameters);
+      break;
+  }
+  
+  // Broadcast to AI context
+  this.gameState.addObserverAction(action);
+}
+```
+
+## Error Handling Guidelines
+
+### Validation Strategy
+- **Fail fast**: Validate inputs at method entry
+- **Detailed error messages**: Include specific failure reasons
+- **Graceful degradation**: Game continues even if one action fails
+
+### Error Response Format
+```javascript
+{
+  valid: false,
+  reason: "Specific error description",
+  code: "ERROR_TYPE" // Optional error categorization
+}
+```
+
+## Performance Considerations
+
+### State Management
+- **Immutable updates**: Create new objects rather than mutating state
+- **Efficient grid access**: Always validate coordinates before array access
+- **Resource calculations**: Use floating point arithmetic consistently
+
+### AI Integration
+- **Rate limiting**: Respect OpenAI API limits
+- **Conversation pruning**: Limit conversation history to prevent token overflow
+- **Timeout handling**: All AI requests have configurable timeouts
+
+## Development Workflow
+
+### Adding New Actions
+1. **Define function schema** in `FunctionSchemas.js`
+2. **Add validation logic** in `ActionValidator.js`
+3. **Implement execution** in `GameEngine.js`
+4. **Add animation timing** in client `ANIMATION_TIMINGS`
+5. **Write comprehensive tests** covering validation and execution
+
+### Adding New Building Types
+1. **Update building definitions** in game constants
+2. **Add construction validation** rules
+3. **Implement passive effects** in income calculation
+4. **Add visual representation** in P5.js client
+5. **Update function schemas** if buildings enable new actions
+
+### Debugging Guidelines
+- **Use WebSocket messages**: Log all communication between client/server
+- **State snapshots**: Capture game state before/after actions
+- **Animation debugging**: Client console logs show animation queue processing
+- **Test coverage**: Run tests after any logic changes
+
+## AI Agent Personality System
+
+### Personality Implementation
+```javascript
+// Personalities affect AI decision-making through system prompts
+const personalities = {
+  'aggressive': 'Focus on combat and territorial expansion',
+  'defensive': 'Prioritize fortification and stability',
+  'economic': 'Maximize resource generation and efficiency',
+  'diplomatic': 'Seek alliances and peaceful solutions',
+  'religious': 'Build shrines and focus on conversion',
+  'chaotic': 'Make unpredictable and bold moves'
+};
+```
+
+### Context Generation
+- **Full game state visibility**: AI agents see all tiles and factions
+- **Recent history**: Last 3 observer actions included in context
+- **Resource awareness**: Current faction resources and income
+- **Victory condition awareness**: AI knows win conditions and current standings
+
+Remember: This codebase prioritizes clarity, testability, and maintainability. When making changes, ensure backward compatibility with the existing WebSocket protocol and maintain the separation between game logic and visualization components.

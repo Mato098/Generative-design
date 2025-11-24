@@ -1,1 +1,0 @@
-"""Game entities: factions, units, tiles, and sprites package."""
