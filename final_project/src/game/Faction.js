@@ -3,13 +3,9 @@ export class Faction {
     this.name = name;
     this.personality = personality; // AI personality traits
     this.resources = {
-      R: 10, // Resources (float)
-      F: 5,  // Faith (float)
-      I: 3   // Influence (float)
-    };
-    this.actionsThisTurn = {
-      primary: null,
-      secondary: null
+      R: 15, // Resources (float) - increased for easier expansion
+      F: 8,  // Faith (float) - increased for conversion options
+      I: 5   // Influence (float) - increased for better conversion chances
     };
     this.isActive = false;
   }
@@ -40,10 +36,6 @@ export class Faction {
   }
 
   startTurn() {
-    this.actionsThisTurn = {
-      primary: null,
-      secondary: null
-    };
     this.isActive = true;
   }
 
@@ -51,26 +43,9 @@ export class Faction {
     this.isActive = false;
   }
 
-  hasUsedPrimaryAction() {
-    return this.actionsThisTurn.primary !== null;
-  }
-
-  hasUsedSecondaryAction() {
-    return this.actionsThisTurn.secondary !== null;
-  }
-
-  recordAction(actionType, isPrimary) {
-    if (isPrimary) {
-      this.actionsThisTurn.primary = actionType;
-    } else {
-      this.actionsThisTurn.secondary = actionType;
-    }
-  }
-
   clone() {
     const newFaction = new Faction(this.name, this.personality);
     newFaction.resources = { ...this.resources };
-    newFaction.actionsThisTurn = { ...this.actionsThisTurn };
     newFaction.isActive = this.isActive;
     return newFaction;
   }

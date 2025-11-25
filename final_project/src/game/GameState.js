@@ -77,8 +77,14 @@ export class GameState {
     // If we've cycled back to first player, increment turn
     if (this.currentPlayerIndex === 0) {
       this.turnNumber++;
-      this.observerActions = []; // Clear observer actions for new turn
+      // DON'T clear observer actions yet - AI agents need to see them
+      // They'll be cleared after all AI agents have processed them
     }
+  }
+
+  clearObserverActions() {
+    // Called after all AI agents have processed the observer actions
+    this.observerActions = [];
   }
 
   applyPassiveIncome() {

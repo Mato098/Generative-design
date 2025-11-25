@@ -1,4 +1,4 @@
-// Game visualization and client logic
+// Game visualization and client logic - Updated API Key Fix
 let gameState = null;
 let animationQueue = [];
 let ws = null;
@@ -21,4 +21,478 @@ const ANIMATION_TIMINGS = {
   'Rend': 900,
   'Meteor': 1500,
   'default': 600
-};\n\n// Faction colors\nconst FACTION_COLORS = {\n  'Neutral': [100, 100, 100],\n  'Faction A': [220, 50, 50],\n  'Faction B': [50, 50, 220],\n  'Faction C': [50, 220, 50],\n  'Faction D': [220, 220, 50]\n};\n\n// Tile size and spacing\nconst TILE_SIZE = 45;\nconst GRID_OFFSET_X = 50;\nconst GRID_OFFSET_Y = 50;\n\n// P5.js sketch\nfunction setup() {\n  const canvas = createCanvas(600, 600);\n  canvas.parent('game-canvas');\n  \n  // Connect to WebSocket\n  connectWebSocket();\n  \n  // Request initial game state\n  fetchGameState();\n}\n\nfunction draw() {\n  background(30);\n  \n  if (gameState) {\n    drawGrid();\n    drawUI();\n  } else {\n    // Loading state\n    textAlign(CENTER, CENTER);\n    fill(255);\n    textSize(24);\n    text('Loading game state...', width/2, height/2);\n  }\n}\n\nfunction drawGrid() {\n  stroke(80);\n  strokeWeight(1);\n  \n  for (let y = 0; y < 10; y++) {\n    for (let x = 0; x < 10; x++) {\n      const tile = gameState.grid[y][x];\n      const screenX = GRID_OFFSET_X + x * TILE_SIZE;\n      const screenY = GRID_OFFSET_Y + y * TILE_SIZE;\n      \n      // Tile background color based on owner\n      const ownerColor = FACTION_COLORS[tile.owner] || FACTION_COLORS['Neutral'];\n      fill(ownerColor[0], ownerColor[1], ownerColor[2]);\n      rect(screenX, screenY, TILE_SIZE, TILE_SIZE);\n      \n      // Tile type indicator\n      drawTileType(tile, screenX, screenY);\n      \n      // Building indicator\n      if (tile.building !== 'none') {\n        drawBuilding(tile.building, screenX, screenY);\n      }\n      \n      // Troop power indicator\n      if (tile.troop_power > 0) {\n        drawTroopPower(tile.troop_power, screenX, screenY);\n      }\n      \n      // Stability indicator\n      drawStability(tile.stability, screenX, screenY);\n      \n      // Coordinates\n      fill(200);\n      textAlign(LEFT, TOP);\n      textSize(8);\n      text(`${x},${y}`, screenX + 2, screenY + 2);\n    }\n  }\n}\n\nfunction drawTileType(tile, x, y) {\n  const typeColors = {\n    'plains': [139, 121, 94],\n    'forest': [34, 139, 34],\n    'hill': [160, 82, 45],\n    'ruin': [128, 128, 128],\n    'sacred': [255, 215, 0]\n  };\n  \n  const color = typeColors[tile.type] || typeColors['plains'];\n  fill(color[0], color[1], color[2], 100);\n  noStroke();\n  rect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);\n}\n\nfunction drawBuilding(building, x, y) {\n  const buildingSymbols = {\n    'Shrine': '⛩',\n    'Idol': '🗿',\n    'Training': '🏛',\n    'Market': '🏪',\n    'Tower': '🗼',\n    'Fortress': '🏰'\n  };\n  \n  fill(255);\n  textAlign(CENTER, CENTER);\n  textSize(16);\n  text(buildingSymbols[building] || '■', x + TILE_SIZE/2, y + TILE_SIZE/2);\n}\n\nfunction drawTroopPower(troopPower, x, y) {\n  fill(255, 100, 100);\n  textAlign(RIGHT, BOTTOM);\n  textSize(10);\n  text(troopPower.toFixed(0), x + TILE_SIZE - 2, y + TILE_SIZE - 2);\n}\n\nfunction drawStability(stability, x, y) {\n  // Stability bar\n  const barWidth = TILE_SIZE - 6;\n  const barHeight = 3;\n  const stabilityRatio = stability / 10;\n  \n  // Background\n  fill(50);\n  rect(x + 3, y + TILE_SIZE - 8, barWidth, barHeight);\n  \n  // Stability level\n  fill(255 * (1 - stabilityRatio), 255 * stabilityRatio, 0);\n  rect(x + 3, y + TILE_SIZE - 8, barWidth * stabilityRatio, barHeight);\n}\n\nfunction drawUI() {\n  // Current action animation indicator\n  if (isAnimating && animationQueue.length > 0) {\n    fill(255, 255, 0);\n    textAlign(LEFT, TOP);\n    textSize(14);\n    text(`Animating: ${animationQueue[0].type}`, 10, height - 30);\n  }\n}\n\n// WebSocket connection\nfunction connectWebSocket() {\n  ws = new WebSocket('ws://localhost:3000');\n  \n  ws.onopen = function() {\n    console.log('Connected to game server');\n    updateConnectionStatus('Connected');\n  };\n  \n  ws.onmessage = function(event) {\n    const message = JSON.parse(event.data);\n    handleServerMessage(message);\n  };\n  \n  ws.onclose = function() {\n    console.log('Disconnected from server');\n    updateConnectionStatus('Disconnected');\n    // Attempt to reconnect after 3 seconds\n    setTimeout(connectWebSocket, 3000);\n  };\n  \n  ws.onerror = function(error) {\n    console.error('WebSocket error:', error);\n    updateConnectionStatus('Error');\n  };\n}\n\nfunction handleServerMessage(message) {\n  switch (message.type) {\n    case 'gameState':\n      gameState = message.data;\n      updateUI();\n      break;\n      \n    case 'actionsExecuted':\n      // Add actions to animation queue\n      for (const action of message.data.actions) {\n        animationQueue.push(action);\n      }\n      gameState = message.data.newGameState;\n      processAnimationQueue();\n      logAction(`${message.data.player} executed ${message.data.actions.length} action(s)`);\n      break;\n      \n    case 'observerTurnStarted':\n      gameState = message.data.gameState;\n      showObserverTurn();\n      updateUI();\n      break;\n      \n    case 'gameStarted':\n      gameState = message.data;\n      updateUI();\n      logAction('Game started!');\n      break;\n      \n    case 'gameEnded':\n      logAction(`Game ended! Winner: ${message.data.winner} (${message.data.type} victory)`);\n      alert(`Game Over! ${message.data.winner} wins by ${message.data.type}!`);\n      break;\n      \n    case 'error':\n      console.error('Server error:', message.message);\n      logAction(`Error: ${message.message}`);\n      break;\n  }\n}\n\n// Animation processing\nfunction processAnimationQueue() {\n  if (isAnimating || animationQueue.length === 0 || animationPaused) {\n    return;\n  }\n  \n  isAnimating = true;\n  const action = animationQueue.shift();\n  \n  // Animate the action\n  animateAction(action);\n  \n  // Schedule next animation\n  const duration = ANIMATION_TIMINGS[action.type] || ANIMATION_TIMINGS['default'];\n  setTimeout(() => {\n    isAnimating = false;\n    processAnimationQueue(); // Process next action\n  }, duration);\n}\n\nfunction animateAction(action) {\n  logAction(`Animating ${action.action.type}: ${JSON.stringify(action.action.parameters)}`);\n  \n  // Visual effects based on action type\n  switch (action.action.type) {\n    case 'Assault':\n      animateAssault(action);\n      break;\n    case 'Convert':\n      animateConvert(action);\n      break;\n    case 'Construct':\n      animateBuild(action);\n      break;\n    case 'Smite':\n      animateSmite(action);\n      break;\n    case 'Meteor':\n      animateMeteor(action);\n      break;\n    // Add more animation types as needed\n  }\n}\n\nfunction animateAssault(action) {\n  // Flash effect for combat\n  const fromX = GRID_OFFSET_X + action.action.parameters.fromX * TILE_SIZE;\n  const fromY = GRID_OFFSET_Y + action.action.parameters.fromY * TILE_SIZE;\n  const toX = GRID_OFFSET_X + action.action.parameters.targetX * TILE_SIZE;\n  const toY = GRID_OFFSET_Y + action.action.parameters.targetY * TILE_SIZE;\n  \n  // Visual attack line (simplified - in a full implementation you'd use proper animation)\n  console.log(`Combat animation: (${fromX},${fromY}) -> (${toX},${toY})`);\n}\n\nfunction animateConvert(action) {\n  console.log('Conversion attempt animation');\n}\n\nfunction animateBuild(action) {\n  console.log(`Building ${action.action.parameters.building} constructed`);\n}\n\nfunction animateSmite(action) {\n  console.log(`Divine smite at (${action.action.parameters.x},${action.action.parameters.y})`);\n}\n\nfunction animateMeteor(action) {\n  console.log(`Meteor strikes at (${action.action.parameters.centerX},${action.action.parameters.centerY})`);\n}\n\n// UI Functions\nfunction updateUI() {\n  if (!gameState) return;\n  \n  // Update status display\n  document.getElementById('turn-info').textContent = `Turn: ${gameState.turnNumber}`;\n  document.getElementById('current-player').textContent = `Current: ${gameState.currentPlayer}`;\n  document.getElementById('game-status').textContent = `Status: ${gameState.gameStatus}`;\n  \n  // Update faction display\n  updateFactionDisplay();\n  \n  // Show/hide observer controls\n  const observerIndicator = document.getElementById('observer-turn-indicator');\n  if (gameState.currentPlayer === 'Observer') {\n    observerIndicator.style.display = 'block';\n  } else {\n    observerIndicator.style.display = 'none';\n  }\n}\n\nfunction updateFactionDisplay() {\n  const display = document.getElementById('faction-display');\n  let html = '<h3>Factions</h3>';\n  \n  for (const [name, faction] of Object.entries(gameState.factions || {})) {\n    const color = FACTION_COLORS[name] || FACTION_COLORS['Neutral'];\n    html += `<div style=\"border-left-color: rgb(${color[0]}, ${color[1]}, ${color[2]})\">`;\n    html += `<strong>${name}</strong><br>`;\n    html += `R: ${faction.resources.R.toFixed(1)} `;\n    html += `F: ${faction.resources.F.toFixed(1)} `;\n    html += `I: ${faction.resources.I.toFixed(1)}<br>`;\n    if (faction.personality) {\n      html += `<em>${faction.personality}</em>`;\n    }\n    html += '</div>';\n  }\n  \n  display.innerHTML = html;\n}\n\nfunction updateConnectionStatus(status) {\n  // Could add a connection indicator to the UI\n  console.log('Connection status:', status);\n}\n\nfunction logAction(message) {\n  const logContent = document.getElementById('log-content');\n  const timestamp = new Date().toLocaleTimeString();\n  logContent.innerHTML += `<div>[${timestamp}] ${message}</div>`;\n  logContent.scrollTop = logContent.scrollHeight;\n}\n\n// Control functions\nfunction startGame() {\n  // Default agent configuration - in a real implementation, this would be configurable\n  const agentConfig = [\n    { name: 'Faction A', personality: 'aggressive', apiKey: 'your-api-key' },\n    { name: 'Faction B', personality: 'defensive', apiKey: 'your-api-key' }\n  ];\n  \n  fetch('/api/game/start', {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json'\n    },\n    body: JSON.stringify({ agents: agentConfig })\n  })\n  .then(response => response.json())\n  .then(data => {\n    if (data.success) {\n      logAction('Game start requested');\n    } else {\n      logAction('Failed to start game: ' + data.error);\n    }\n  });\n}\n\nfunction pauseAnimations() {\n  animationPaused = !animationPaused;\n  if (!animationPaused) {\n    processAnimationQueue();\n  }\n  logAction(animationPaused ? 'Animations paused' : 'Animations resumed');\n}\n\nfunction executeGodPower(power) {\n  const x = parseInt(document.getElementById('god-x').value);\n  const y = parseInt(document.getElementById('god-y').value);\n  const reason = document.getElementById('god-reason').value || 'Divine will';\n  \n  if (isNaN(x) || isNaN(y) || x < 0 || x > 9 || y < 0 || y > 9) {\n    alert('Please enter valid coordinates (0-9)');\n    return;\n  }\n  \n  const action = {\n    type: power,\n    parameters: { x, y, reason }\n  };\n  \n  sendObserverAction(action);\n}\n\nfunction executeMeteor() {\n  const x = parseInt(document.getElementById('meteor-x').value);\n  const y = parseInt(document.getElementById('meteor-y').value);\n  const reason = document.getElementById('god-reason').value || 'Divine wrath';\n  \n  if (isNaN(x) || isNaN(y) || x < 1 || x > 8 || y < 1 || y > 8) {\n    alert('Please enter valid meteor coordinates (1-8)');\n    return;\n  }\n  \n  const action = {\n    type: 'meteor',\n    parameters: { centerX: x, centerY: y, reason }\n  };\n  \n  sendObserverAction(action);\n}\n\nfunction executeObserve() {\n  const commentary = document.getElementById('observe-comment').value || 'The gods watch in silence';\n  \n  const action = {\n    type: 'observe',\n    parameters: { commentary }\n  };\n  \n  sendObserverAction(action);\n}\n\nfunction sendObserverAction(action) {\n  if (ws && ws.readyState === WebSocket.OPEN) {\n    ws.send(JSON.stringify({\n      type: 'observerAction',\n      action: action\n    }));\n    logAction(`Observer used ${action.type}: ${JSON.stringify(action.parameters)}`);\n    \n    // Clear inputs\n    document.getElementById('god-x').value = '';\n    document.getElementById('god-y').value = '';\n    document.getElementById('god-reason').value = '';\n    document.getElementById('meteor-x').value = '';\n    document.getElementById('meteor-y').value = '';\n    document.getElementById('observe-comment').value = '';\n  } else {\n    alert('Not connected to server');\n  }\n}\n\nfunction showObserverTurn() {\n  logAction('Observer turn started - Divine intervention awaited!');\n}\n\n// Initial game state fetch\nfunction fetchGameState() {\n  fetch('/api/game/state')\n    .then(response => response.json())\n    .then(data => {\n      gameState = data;\n      updateUI();\n    })\n    .catch(error => {\n      console.error('Failed to fetch game state:', error);\n    });\n}\n\n// Handle mouse clicks for tile inspection\nfunction mousePressed() {\n  if (!gameState) return;\n  \n  const gridX = Math.floor((mouseX - GRID_OFFSET_X) / TILE_SIZE);\n  const gridY = Math.floor((mouseY - GRID_OFFSET_Y) / TILE_SIZE);\n  \n  if (gridX >= 0 && gridX < 10 && gridY >= 0 && gridY < 10) {\n    const tile = gameState.grid[gridY][gridX];\n    const info = `Tile (${gridX},${gridY}):\n` +\n                 `Owner: ${tile.owner}\n` +\n                 `Type: ${tile.type}\n` +\n                 `Troops: ${tile.troop_power.toFixed(1)}\n` +\n                 `Stability: ${tile.stability.toFixed(1)}\n` +\n                 `Building: ${tile.building}\n` +\n                 `Resource Value: ${tile.resource_value}`;\n    \n    console.log(info);\n    // Could show this in a tooltip or info panel\n  }\n}
+};
+
+// Faction colors
+const FACTION_COLORS = {
+  'Neutral': [100, 100, 100],
+  'Faction A': [220, 50, 50],
+  'Faction B': [50, 50, 220],
+  'Faction C': [50, 220, 50],
+  'Faction D': [220, 220, 50]
+};
+
+// Tile size and spacing
+const TILE_SIZE = 45;
+const GRID_OFFSET_X = 50;
+const GRID_OFFSET_Y = 50;
+
+// P5.js sketch
+function setup() {
+  const canvas = createCanvas(600, 600);
+  canvas.parent('game-canvas');
+  
+  // Connect to WebSocket
+  connectWebSocket();
+  
+  // Request initial game state
+  fetchGameState();
+}
+
+function draw() {
+  background(30);
+  
+  if (gameState) {
+    drawGrid();
+    drawUI();
+  } else {
+    // Loading state
+    textAlign(CENTER, CENTER);
+    fill(255);
+    textSize(24);
+    text('Loading game state...', width/2, height/2);
+  }
+}
+
+function drawGrid() {
+  stroke(80);
+  strokeWeight(1);
+  
+  for (let y = 0; y < 10; y++) {
+    for (let x = 0; x < 10; x++) {
+      const tile = gameState.grid[y][x];
+      const screenX = GRID_OFFSET_X + x * TILE_SIZE;
+      const screenY = GRID_OFFSET_Y + y * TILE_SIZE;
+      
+      // Tile background color based on owner
+      const ownerColor = FACTION_COLORS[tile.owner] || FACTION_COLORS['Neutral'];
+      fill(ownerColor[0], ownerColor[1], ownerColor[2]);
+      rect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+      
+      // Tile type indicator
+      drawTileType(tile, screenX, screenY);
+      
+      // Building indicator
+      if (tile.building !== 'none') {
+        drawBuilding(tile.building, screenX, screenY);
+      }
+      
+      // Troop power indicator
+      if (tile.troop_power > 0) {
+        drawTroopPower(tile.troop_power, screenX, screenY);
+      }
+      
+      // Stability indicator
+      drawStability(tile.stability, screenX, screenY);
+      
+      // Coordinates
+      fill(200);
+      textAlign(LEFT, TOP);
+      textSize(8);
+      text(`${x},${y}`, screenX + 2, screenY + 2);
+    }
+  }
+}
+
+function drawTileType(tile, x, y) {
+  const typeColors = {
+    'plains': [139, 121, 94],
+    'forest': [34, 139, 34],
+    'hill': [160, 82, 45],
+    'ruin': [128, 128, 128],
+    'sacred': [255, 215, 0]
+  };
+  
+  const color = typeColors[tile.type] || typeColors['plains'];
+  fill(color[0], color[1], color[2], 100);
+  noStroke();
+  rect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+}
+
+function drawBuilding(building, x, y) {
+  const buildingSymbols = {
+    'Shrine': '⛩',
+    'Idol': '🗿',
+    'Training': '🏛',
+    'Market': '🏪',
+    'Tower': '🗼',
+    'Fortress': '🏰'
+  };
+  
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(16);
+  text(buildingSymbols[building] || '■', x + TILE_SIZE/2, y + TILE_SIZE/2);
+}
+
+function drawTroopPower(troopPower, x, y) {
+  fill(255, 100, 100);
+  textAlign(RIGHT, BOTTOM);
+  textSize(10);
+  text(troopPower.toFixed(0), x + TILE_SIZE - 2, y + TILE_SIZE - 2);
+}
+
+function drawStability(stability, x, y) {
+  // Stability bar
+  const barWidth = TILE_SIZE - 6;
+  const barHeight = 3;
+  const stabilityRatio = stability / 10;
+  
+  // Background
+  fill(50);
+  rect(x + 3, y + TILE_SIZE - 8, barWidth, barHeight);
+  
+  // Stability level
+  fill(255 * (1 - stabilityRatio), 255 * stabilityRatio, 0);
+  rect(x + 3, y + TILE_SIZE - 8, barWidth * stabilityRatio, barHeight);
+}
+
+function drawUI() {
+  // Current action animation indicator
+  if (isAnimating && animationQueue.length > 0) {
+    fill(255, 255, 0);
+    textAlign(LEFT, TOP);
+    textSize(14);
+    text(`Animating: ${animationQueue[0].type}`, 10, height - 30);
+  }
+}
+
+// WebSocket connection
+function connectWebSocket() {
+  ws = new WebSocket('ws://localhost:3000');
+  
+  ws.onopen = function() {
+    updateConnectionStatus('Connected');
+  };
+  
+  ws.onmessage = function(event) {
+    const message = JSON.parse(event.data);
+    handleServerMessage(message);
+  };
+  
+  ws.onclose = function() {
+    updateConnectionStatus('Disconnected');
+    // Attempt to reconnect after 3 seconds
+    setTimeout(connectWebSocket, 3000);
+  };
+  
+  ws.onerror = function(error) {
+    updateConnectionStatus('Error');
+  };
+}
+
+function handleServerMessage(message) {
+  switch (message.type) {
+    case 'gameState':
+      gameState = message.data;
+      updateUI();
+      break;
+      
+    case 'actionsExecuted':
+      // Add actions to animation queue
+      for (const action of message.data.actions) {
+        animationQueue.push(action);
+      }
+      gameState = message.data.newGameState;
+      processAnimationQueue();
+      logAction(`${message.data.player} executed ${message.data.actions.length} action(s)`);
+      break;
+      
+    case 'observerTurnStarted':
+      gameState = message.data.gameState;
+      showObserverTurn();
+      updateUI();
+      break;
+      
+    case 'gameStarted':
+      gameState = message.data;
+      updateUI();
+      logAction('Game started!');
+      break;
+      
+    case 'gameEnded':
+      logAction(`Game ended! Winner: ${message.data.winner} (${message.data.type} victory)`);
+      alert(`Game Over! ${message.data.winner} wins by ${message.data.type}!`);
+      break;
+      
+    case 'error':
+      // Error logged on server, just show user-friendly message
+      break;
+  }
+}
+
+// Animation processing
+function processAnimationQueue() {
+  if (isAnimating || animationQueue.length === 0 || animationPaused) {
+    return;
+  }
+  
+  isAnimating = true;
+  const action = animationQueue.shift();
+  
+  // Animate the action
+  animateAction(action);
+  
+  // Schedule next animation
+  const duration = ANIMATION_TIMINGS[action.type] || ANIMATION_TIMINGS['default'];
+  setTimeout(() => {
+    isAnimating = false;
+    processAnimationQueue(); // Process next action
+  }, duration);
+}
+
+function animateAction(action) {
+  logAction(`Animating ${action.action.type}: ${JSON.stringify(action.action.parameters)}`);
+  
+  // Visual effects based on action type
+  switch (action.action.type) {
+    case 'Assault':
+      animateAssault(action);
+      break;
+    case 'Convert':
+      animateConvert(action);
+      break;
+    case 'Construct':
+      animateBuild(action);
+      break;
+    case 'Smite':
+      animateSmite(action);
+      break;
+    case 'Meteor':
+      animateMeteor(action);
+      break;
+    // Add more animation types as needed
+  }
+}
+
+function animateAssault(action) {
+  // Flash effect for combat
+  const fromX = GRID_OFFSET_X + action.action.parameters.fromX * TILE_SIZE;
+  const fromY = GRID_OFFSET_Y + action.action.parameters.fromY * TILE_SIZE;
+  const toX = GRID_OFFSET_X + action.action.parameters.targetX * TILE_SIZE;
+  const toY = GRID_OFFSET_Y + action.action.parameters.targetY * TILE_SIZE;
+  
+  // Visual attack line (simplified - in a full implementation you'd use proper animation)
+}
+
+function animateConvert(action) {
+  // Conversion attempt animation
+}
+
+function animateBuild(action) {
+  // Building construction animation
+}
+
+function animateSmite(action) {
+  // Divine smite animation
+}
+
+function animateMeteor(action) {
+  // Meteor strike animation
+}
+
+// UI Functions
+function updateUI() {
+  if (!gameState) return;
+  
+  // Update status display
+  document.getElementById('turn-info').textContent = `Turn: ${gameState.turnNumber}`;
+  document.getElementById('current-player').textContent = `Current: ${gameState.currentPlayer}`;
+  document.getElementById('game-status').textContent = `Status: ${gameState.gameStatus}`;
+  
+  // Update faction display
+  updateFactionDisplay();
+  
+  // Show/hide observer controls
+  const observerIndicator = document.getElementById('observer-turn-indicator');
+  if (gameState.currentPlayer === 'Observer') {
+    observerIndicator.style.display = 'block';
+  } else {
+    observerIndicator.style.display = 'none';
+  }
+}
+
+function updateFactionDisplay() {
+  const display = document.getElementById('faction-display');
+  let html = '<h3>Factions</h3>';
+  
+  for (const [name, faction] of Object.entries(gameState.factions || {})) {
+    const color = FACTION_COLORS[name] || FACTION_COLORS['Neutral'];
+    html += `<div style="border-left-color: rgb(${color[0]}, ${color[1]}, ${color[2]})">`;
+    html += `<strong>${name}</strong><br>`;
+    html += `R: ${faction.resources.R.toFixed(1)} `;
+    html += `F: ${faction.resources.F.toFixed(1)} `;
+    html += `I: ${faction.resources.I.toFixed(1)}<br>`;
+    if (faction.personality) {
+      html += `<em>${faction.personality}</em>`;
+    }
+    html += '</div>';
+  }
+  
+  display.innerHTML = html;
+}
+
+function updateConnectionStatus(status) {
+  // Could add a connection indicator to the UI
+}
+
+function logAction(message) {
+  const logContent = document.getElementById('log-content');
+  const timestamp = new Date().toLocaleTimeString();
+  logContent.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+  logContent.scrollTop = logContent.scrollHeight;
+}
+
+// Control functions
+function startGame() {
+  // Default agent configuration with new personality system
+  const agentConfig = [
+    { name: 'Faction A', personality: 'zealot' },
+    { name: 'Faction B', personality: 'skeptic' }
+  ];
+  
+  fetch('/api/game/start', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ agents: agentConfig })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      logAction('Game start requested');
+    } else {
+      logAction('Failed to start game: ' + data.error);
+    }
+  });
+}
+
+function pauseAnimations() {
+  animationPaused = !animationPaused;
+  if (!animationPaused) {
+    processAnimationQueue();
+  }
+  logAction(animationPaused ? 'Animations paused' : 'Animations resumed');
+}
+
+function executeGodPower(power) {
+  const x = parseInt(document.getElementById('god-x').value);
+  const y = parseInt(document.getElementById('god-y').value);
+  const reason = document.getElementById('god-reason').value || 'Divine will';
+  
+  if (isNaN(x) || isNaN(y) || x < 0 || x > 9 || y < 0 || y > 9) {
+    alert('Please enter valid coordinates (0-9)');
+    return;
+  }
+  
+  const action = {
+    type: power,
+    parameters: { x, y, reason }
+  };
+  
+  sendObserverAction(action);
+}
+
+function executeMeteor() {
+  const x = parseInt(document.getElementById('meteor-x').value);
+  const y = parseInt(document.getElementById('meteor-y').value);
+  const reason = document.getElementById('god-reason').value || 'Divine wrath';
+  
+  if (isNaN(x) || isNaN(y) || x < 1 || x > 8 || y < 1 || y > 8) {
+    alert('Please enter valid meteor coordinates (1-8)');
+    return;
+  }
+  
+  const action = {
+    type: 'meteor',
+    parameters: { centerX: x, centerY: y, reason }
+  };
+  
+  sendObserverAction(action);
+}
+
+function executeObserve() {
+  const commentary = document.getElementById('observe-comment').value.trim();
+  
+  // Don't send empty observe actions
+  if (!commentary) {
+    logAction('Empty observe command - no divine intervention sent');
+    return;
+  }
+  
+  const action = {
+    type: 'observe',
+    parameters: { commentary }
+  };
+  
+  sendObserverAction(action);
+}
+
+function sendObserverAction(action) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'observerAction',
+      action: action
+    }));
+    
+    // Clear inputs
+    document.getElementById('god-x').value = '';
+    document.getElementById('god-y').value = '';
+    document.getElementById('god-reason').value = '';
+    document.getElementById('meteor-x').value = '';
+    document.getElementById('meteor-y').value = '';
+    document.getElementById('observe-comment').value = '';
+  } else {
+    alert('Not connected to server');
+  }
+}
+
+function showObserverTurn() {
+  logAction('Observer turn started - Divine intervention awaited!');
+}
+
+// Initial game state fetch
+function fetchGameState() {
+  fetch('/api/game/state')
+    .then(response => response.json())
+    .then(data => {
+      gameState = data;
+      updateUI();
+    })
+    .catch(error => {
+      logAction('Failed to fetch game state');
+    });
+}
+
+// Handle mouse clicks for tile inspection
+function mousePressed() {
+  if (!gameState) return;
+  
+  const gridX = Math.floor((mouseX - GRID_OFFSET_X) / TILE_SIZE);
+  const gridY = Math.floor((mouseY - GRID_OFFSET_Y) / TILE_SIZE);
+  
+  if (gridX >= 0 && gridX < 10 && gridY >= 0 && gridY < 10) {
+    const tile = gameState.grid[gridY][gridX];
+    const info = `Tile (${gridX},${gridY}):
+Owner: ${tile.owner}
+Type: ${tile.type}
+Troops: ${tile.troop_power.toFixed(1)}
+Stability: ${tile.stability.toFixed(1)}
+Building: ${tile.building}
+Resource Value: ${tile.resource_value}`;
+    
+    // Could show this in a tooltip or info panel
+    logAction(`Tile inspection: ${info.replace(/\n/g, ' | ')}`);
+  }
+}

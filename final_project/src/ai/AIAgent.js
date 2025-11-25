@@ -1,10 +1,12 @@
 import OpenAI from 'openai';
 import { GAME_FUNCTION_SCHEMAS } from './FunctionSchemas.js';
+import { PERSONALITY_PROFILES, PersonalityEngine } from './PersonalityProfiles.js';
 
 export class AIAgent {
   constructor(name, personality, apiKey) {
     this.name = name;
     this.personality = personality;
+    this.personalityData = PersonalityEngine.getPersonality(personality); // Store full personality data
     this.openai = new OpenAI({ 
       apiKey: apiKey || process.env.OPENAI_API_KEY 
     });
@@ -16,25 +18,55 @@ export class AIAgent {
       const systemPrompt = this.buildSystemPrompt();
       const userMessage = this.buildContextMessage(context);
       
+      // DEBUG: Log prompt lengths to investigate token usage
+      console.log(`\n📝 ${this.name} PROMPT DEBUG:`);
+      console.log(`System prompt length: ${systemPrompt.length} chars`);
+      console.log(`User message length: ${userMessage.length} chars`);
+      console.log(`Conversation history length: ${this.conversationHistory.length} messages`);
+      console.log(`Total history chars: ${JSON.stringify(this.conversationHistory).length} chars`);
+      console.log(`📝 END PROMPT DEBUG\n`);
+      
       // Add to conversation history
       this.conversationHistory.push({
         role: 'user',
         content: userMessage
       });
 
+      const startTime = Date.now();
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-5-nano-2025-08-07',
         messages: [
           { role: 'system', content: systemPrompt },
           ...this.conversationHistory
         ],
         tools: GAME_FUNCTION_SCHEMAS,
-        tool_choice: 'auto',
-        temperature: 0.7,
-        max_tokens: 2000
+        tool_choice: 'required', // Force at least one function call
+        temperature: 1,
+        max_completion_tokens: 4000
       });
 
       const message = response.choices[0].message;
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
+      console.log(`⏱️ ${this.name} LLM response: ${duration / 1000}s`);
+      
+      // Log token usage
+      const tokenUsage = response.usage;
+      console.log(`${this.name} tokens: ${tokenUsage.prompt_tokens} prompt + ${tokenUsage.completion_tokens} completion = ${tokenUsage.total_tokens} total`);
+      
+      // DEBUG: Show full response content to investigate high token usage
+      console.log(`\n📊 FULL ${this.name} RESPONSE DEBUG:`);
+      console.log(`Content: "${message.content}"`);
+      console.log(`Tool calls count: ${message.tool_calls ? message.tool_calls.length : 0}`);
+      if (message.tool_calls) {
+        message.tool_calls.forEach((call, index) => {
+          console.log(`  Tool ${index + 1}: ${call.function.name}`);
+          console.log(`  Arguments length: ${call.function.arguments.length} chars`);
+          console.log(`  Full arguments: ${call.function.arguments}`);
+        });
+      }
+      console.log(`📊 END RESPONSE DEBUG\n`);
       
       // Add assistant response to history
       this.conversationHistory.push({
@@ -44,123 +76,154 @@ export class AIAgent {
       });
 
       // Parse actions from function calls
-      const actions = this.parseActionsFromResponse(message);
+      const result = this.parseActionsFromResponse(message);
       
-      return actions;
+      // Add tool result messages for each tool call
+      if (message.tool_calls) {
+        for (const toolCall of message.tool_calls) {
+          this.conversationHistory.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({
+              success: true,
+              action_queued: true,
+              function: toolCall.function.name,
+              parameters: toolCall.function.arguments
+            })
+          });
+        }
+      }
+      
+      // Debug: Log parsed actions
+      console.log(`Parsed actions for ${this.name}:`, result);
+      
+      // Trim conversation history to save tokens (keep last 4 exchanges)
+      const maxHistoryLength = 8; // 4 user/assistant pairs
+      if (this.conversationHistory.length > maxHistoryLength) {
+        this.conversationHistory = this.conversationHistory.slice(-maxHistoryLength);
+      }
+      
+      return result;
       
     } catch (error) {
       console.error(`AI Agent ${this.name} error:`, error);
       // Return empty actions if AI fails
-      return { primary: null, secondary: null };
+      return { actions: [], message: null };
     }
   }
 
   buildSystemPrompt() {
-    const basePrompt = `You are ${this.name}, a faction leader in a strategic territory control game on a 10x10 grid.
-
-GAME RULES SUMMARY:
-- Grid: 10x10 tiles with orthogonal adjacency only (N/S/E/W)
-- Each tile has: owner, type, troop_power, stability (0-10), building, resource_value
-- Tile types: plains, forest (+1 resource), hill (+1 defense), ruin, sacred (+1 Faith/turn, +2 defense)
-- Buildings: Shrine(5R,+1F/turn), Idol(3R,+1 troop), Training(4R,+1 reinforce), Market(3R,+1R/turn), Tower(4R,+1 pressure), Fortress(6R,+4 defense)
-
-YOUR RESOURCES:
-- R (Resources): spent on most actions, gained from owned tiles (1 + resource_value per turn)
-- F (Faith): used for conversion, gained from Shrines and sacred tiles
-- I (Influence): used for conversion and affects success chance, gained through various means
-
-TURN STRUCTURE:
-1. Each turn you get 1 mandatory primary action and 1 optional secondary action
-2. Primary actions: Reinforce, ProjectPressure, Assault, Convert, Construct
-3. Secondary actions: Redistribute, Repair, Scorch, Message
-4. Cannot use same category for both actions (e.g., Reinforce + Repair both affect stability)
-5. Observer (human god) takes the final turn each round and can affect the game
-
-COMBAT FORMULA:
-- Attacker wins if: troop_power > (defender_troop + stability + tile_defense + building_defense)
-- Win: capture tile, set new troop_power = excess, set stability = 3
-- Lose: lose 75% of attacking troops, defender loses 25%, target stability -1
-
-VICTORY CONDITIONS:
-- Domination: >50% tiles for 2 continuous turns
-- Devotion: highest Faith at turn 40
-- Prestige: most buildings at turn 30
-
-PERSONALITY: ${this.personality ? this.getPersonalityPrompt() : 'Play strategically and adaptively.'}
-
-CRITICAL: Use the provided function calls for ALL actions. If an action is rejected, you cannot retry - the game continues. Choose actions carefully based on your current resources and strategic position.
-
-Always respond with function calls for your chosen actions. You may include brief strategic commentary, but focus on executing your turn through function calls.`;
-
-    return basePrompt;
+    let prompt = this.name + ' - 10x10 strategy ruler. Goal: 50+ tiles.\n';
+    prompt += 'ONLY use execute_turn_plan() with 2-4 actions + blurbs.\n';
+    prompt += 'Actions: assault, reinforce, convert, construct, project_pressure, redistribute, repair, scorch, send_message\n';
+    prompt += this.personality ? this.getPersonalityPrompt() : 'Aggressive expansion.';
+    return prompt;
   }
 
   getPersonalityPrompt() {
-    if (!this.personality) return '';
+    if (!this.personality) return 'Focus on aggressive expansion.';
 
-    const personalityPrompts = {
-      aggressive: "You are an aggressive expansionist. Prioritize military conquest through assault actions. Build Idols and Training grounds to strengthen your armies. Take risks for territorial gains.",
-      
-      defensive: "You are a defensive strategist. Focus on fortifying your territory with Fortresses and maintaining high stability. Use ProjectPressure to weaken enemies without exposing yourself.",
-      
-      diplomatic: "You are a cunning diplomat. Use Convert actions and Message functions to manipulate others. Build up Influence and Faith resources. Prefer indirect tactics over direct assault.",
-      
-      economic: "You are an economic powerhouse. Build Markets and secure resource-rich tiles. Focus on long-term growth over immediate conflict. Use your wealth to outbuild opponents.",
-      
-      religious: "You are a devoted zealot. Prioritize Faith generation through Shrines. Convert enemy tiles through religious influence. Seek to control sacred sites.",
-      
-      chaotic: "You are unpredictable and opportunistic. Mix different strategies based on current opportunities. Take calculated risks and exploit enemy weaknesses.",
-      
-      builder: "You are a master architect. Focus heavily on construction and infrastructure. Build diverse buildings to create specialized strongholds. Play for the Prestige victory condition.",
-      
-      opportunist: "You adapt your strategy based on circumstances. Exploit enemy mistakes and weaknesses. Switch between military, economic, and diplomatic tactics as needed."
+    // Use evolved personality data if available, otherwise fall back to static system
+    if (this.personalityData && this.personalityData.personality_prompt) {
+      return this.personalityData.personality_prompt;
+    }
+
+    // Fallback to static personality system
+    const personalityData = PersonalityEngine.getPersonality(this.personality);
+    if (personalityData) {
+      return personalityData.personality_prompt;
+    }
+
+    // Final fallback for unknown personalities
+    const basicPrompts = {
+      aggressive: "Aggressive expansionist. Prioritize assault actions and territorial conquest.",
+      defensive: "Defensive strategist. Fortify territory, use ProjectPressure on enemies.",
+      diplomatic: "Diplomatic manipulator. Use Convert and influence tactics.",
+      economic: "Economic focused. Secure resource tiles, build Markets after expansion.",
+      religious: "Religious zealot. Build Shrines, use Convert, seek sacred sites.",
+      chaotic: "Unpredictable opportunist. Exploit weaknesses, take calculated risks.",
+      builder: "Infrastructure focused. Build diverse buildings after securing territory.",
+      opportunist: "Adaptive tactician. Switch strategies based on opportunities."
     };
 
-    return personalityPrompts[this.personality] || personalityPrompts.opportunist;
+    return basicPrompts[this.personality] || basicPrompts.opportunist;
+  }
+
+  getPersonalitySpeechInstructions() {
+    if (!this.personality) return 'Speak dramatically and decisively.';
+    
+    const personalityData = PersonalityEngine.getPersonality(this.personality);
+    
+    if (personalityData && personalityData.behavioral_tendencies) {
+      const style = personalityData.behavioral_tendencies.communication_style;
+      return 'Communication style: ' + style;
+    }
+    
+    return 'Speak dramatically and decisively.';
   }
 
   buildContextMessage(context) {
     const { gameState, playerResources, ownedTiles, turnNumber, observerActionsLastTurn } = context;
     
-    let message = `TURN ${turnNumber} - Your Turn as ${this.name}
-
-YOUR CURRENT STATUS:
-Resources: R:${playerResources.R.toFixed(1)} F:${playerResources.F.toFixed(1)} I:${playerResources.I.toFixed(1)}
-Owned Tiles: ${ownedTiles.length}/100
-
-OWNED TILES DETAILS:
-${ownedTiles.map(tile => 
-  `(${tile.x},${tile.y}): ${tile.type} - Troops:${tile.troop_power.toFixed(1)} Stability:${tile.stability.toFixed(1)} Building:${tile.building}`
-).join('\n')}
-
-GAME STATE SUMMARY:
-Current Player: ${gameState.currentPlayer}
-Turn Number: ${gameState.turnNumber}
-Total Players: ${gameState.playerOrder.join(', ')}
-
-FACTION STATUS:`;
-
-    // Add information about other factions
-    for (const [name, faction] of Object.entries(gameState.factions)) {
-      if (name !== this.name) {
-        const theirTiles = this.countTilesForFaction(gameState.grid, name);
-        message += `\n${name}: ${theirTiles} tiles, R:${faction.resources.R.toFixed(1)} F:${faction.resources.F.toFixed(1)} I:${faction.resources.I.toFixed(1)}`;
+    // DEBUG: Log observer actions
+    console.log(`🌟 Observer actions for ${this.name}:`, observerActionsLastTurn);
+    
+    let message = `T${turnNumber} ${this.name} | Resources R:${playerResources.R.toFixed(0)} F:${playerResources.F.toFixed(0)} I:${playerResources.I.toFixed(0)} | Tiles:${ownedTiles.length}\n`;
+    
+    // DIVINE EVENTS - ONLY APPEAR WHEN GOD ACTS MEANINGFULLY
+    if (observerActionsLastTurn && observerActionsLastTurn.length > 0) {
+      // Filter for meaningful actions first
+      const meaningfulActions = observerActionsLastTurn.filter(action => {
+        if (action.type === 'observe') {
+          const command = action.parameters.commentary || action.parameters.message || '';
+          return command.trim() && command !== 'The gods watch in silence';
+        }
+        return true; // Other actions (bless, smite, meteor) are always meaningful
+      });
+      
+      // Only show divine section if there are meaningful actions
+      if (meaningfulActions.length > 0) {
+        message += '\n✨ DIVINE: ';
+        
+        meaningfulActions.forEach(action => {
+          if (action.type === 'observe') {
+            const command = action.parameters.commentary || action.parameters.message;
+            message += '"' + command.trim() + '" ';
+          } else if (action.type === 'bless') {
+            message += 'Blessed(' + action.parameters.x + ',' + action.parameters.y + ') ';
+          } else if (action.type === 'smite') {
+            message += 'Smote(' + action.parameters.x + ',' + action.parameters.y + ') ';
+          } else if (action.type === 'meteor') {
+            message += 'Meteor(' + action.parameters.x + ',' + action.parameters.y + ') ';
+          }
+        });
+        
+        message += '\n';
       }
     }
-
-    // Add observer actions from last turn
-    if (observerActionsLastTurn && observerActionsLastTurn.length > 0) {
-      message += `\n\nOBSERVER ACTIONS LAST TURN:`;
-      observerActionsLastTurn.forEach(action => {
-        message += `\n- ${action.type}: ${JSON.stringify(action.parameters)}`;
-      });
+    
+    // Count enemy tiles efficiently
+    const enemyInfo = [];
+    for (const [name, faction] of Object.entries(gameState.factions)) {
+      if (name !== this.name) {
+        const tiles = this.countTilesForFaction(gameState.grid, name);
+        enemyInfo.push(`${name}:${tiles}tiles`);
+      }
     }
-
-    message += `\n\nNEARBY THREATS AND OPPORTUNITIES:`;
+    
+    // Show only key owned tiles (border tiles with troops)
+    const keyTiles = ownedTiles.filter(t => t.troop_power > 0).slice(0, 3);
+    if (keyTiles.length > 0) {
+      const tileList = keyTiles.map(t => '(' + t.x + ',' + t.y + '):' + t.troop_power.toFixed(0) + 't').join(' ');
+      message += 'Key tiles: ' + tileList;
+      if (ownedTiles.length > keyTiles.length) message += ' +' + (ownedTiles.length - keyTiles.length) + ' more';
+      message += '\n';
+    }
+    
+    message += 'Enemies: ' + enemyInfo.join(' ');
     message += this.analyzeStrategicSituation(gameState.grid, ownedTiles);
-
-    message += `\n\nChoose your PRIMARY action (mandatory) and SECONDARY action (optional) using the available functions. Consider your personality, current resources, and strategic position.`;
-
+    message += '\nUse execute_turn_plan() with 2-4 actions.';
+    
     return message;
   }
 
@@ -176,26 +239,22 @@ FACTION STATUS:`;
 
   analyzeStrategicSituation(grid, ownedTiles) {
     let analysis = '';
+    let expansionOpportunities = 0;
     
-    // Find adjacent enemy tiles and opportunities
+    // Find expansion opportunities (only count, don't detail)
     for (const tile of ownedTiles) {
       const adjacent = this.getAdjacentTiles(grid, tile.x, tile.y);
-      const enemyAdjacent = adjacent.filter(t => t.owner !== this.name && t.owner !== 'Neutral');
-      const neutralAdjacent = adjacent.filter(t => t.owner === 'Neutral');
-      
-      if (enemyAdjacent.length > 0) {
-        analysis += `\n- (${tile.x},${tile.y}) borders enemy: ${enemyAdjacent.map(t => `${t.owner}(${t.x},${t.y})`).join(', ')}`;
-      }
-      
-      if (neutralAdjacent.length > 0) {
-        const goodTargets = neutralAdjacent.filter(t => t.type === 'forest' || t.type === 'sacred');
-        if (goodTargets.length > 0) {
-          analysis += `\n- (${tile.x},${tile.y}) can expand to valuable: ${goodTargets.map(t => `${t.type}(${t.x},${t.y})`).join(', ')}`;
-        }
-      }
+      const easyTargets = adjacent.filter(t => t.owner === 'Neutral' && t.troop_power <= 2);
+      expansionOpportunities += easyTargets.length;
     }
     
-    return analysis || '\\n- No immediate threats or obvious opportunities detected.';
+    if (expansionOpportunities > 0) {
+      analysis = '\n' + expansionOpportunities + ' easy targets';
+    } else {
+      analysis = '\nNo easy expansion';
+    }
+    
+    return analysis;
   }
 
   getAdjacentTiles(grid, x, y) {
@@ -214,15 +273,12 @@ FACTION STATUS:`;
   }
 
   parseActionsFromResponse(message) {
-    const actions = { primary: null, secondary: null };
+    const actions = [];
+    let gameMessage = null;
     
     if (!message.tool_calls || message.tool_calls.length === 0) {
-      return actions;
+      return { actions, message: gameMessage };
     }
-
-    // Map function names to action types and categories
-    const primaryActions = ['reinforce', 'project_pressure', 'assault', 'convert', 'construct'];
-    const secondaryActions = ['redistribute', 'repair', 'scorch', 'message'];
     
     for (const toolCall of message.tool_calls) {
       const functionName = toolCall.function.name;
@@ -231,26 +287,45 @@ FACTION STATUS:`;
       try {
         parameters = JSON.parse(toolCall.function.arguments);
       } catch (error) {
-        console.error(`Failed to parse function arguments for ${functionName}:`, error);
+        console.error('Failed to parse function arguments for ' + functionName + ':', error);
         continue;
       }
 
-      const actionType = this.mapFunctionToActionType(functionName);
-      
-      if (primaryActions.includes(functionName) && !actions.primary) {
-        actions.primary = {
+      if (functionName === 'execute_turn_plan') {
+        // Handle meta-function with multiple actions
+        if (parameters.plan && Array.isArray(parameters.plan)) {
+          for (const step of parameters.plan) {
+            if (step.action === 'send_message') {
+              gameMessage = step.args.message;
+            } else {
+              const actionType = this.mapFunctionToActionType(step.action);
+              const action = {
+                type: actionType,
+                blurb: step.args.blurb,
+                parameters: { ...step.args }
+              };
+              delete action.parameters.blurb; // Remove blurb from parameters
+              actions.push(action);
+            }
+          }
+        }
+      } else if (functionName === 'send_message') {
+        // Legacy single message handling
+        gameMessage = parameters.message;
+      } else {
+        // Legacy single action handling
+        const actionType = this.mapFunctionToActionType(functionName);
+        const action = {
           type: actionType,
-          parameters: parameters
+          blurb: parameters.blurb,
+          parameters: { ...parameters }
         };
-      } else if (secondaryActions.includes(functionName) && !actions.secondary) {
-        actions.secondary = {
-          type: actionType,
-          parameters: parameters
-        };
+        delete action.parameters.blurb; // Remove blurb from parameters
+        actions.push(action);
       }
     }
     
-    return actions;
+    return { actions, message: gameMessage };
   }
 
   mapFunctionToActionType(functionName) {
@@ -280,5 +355,22 @@ FACTION STATUS:`;
 
   prioritizesFaith() {
     return ['religious', 'diplomatic'].includes(this.personality);
+  }
+
+  /**
+   * Update the agent's personality data after evolution
+   * @param {Object} newPersonalityData - Evolved personality structure
+   */
+  updatePersonality(newPersonalityData) {
+    this.personalityData = newPersonalityData;
+    console.log('🧠 ' + this.name + ' personality data updated: ' + (newPersonalityData.name || this.personality));
+  }
+
+  /**
+   * Get current personality data for evolution processing
+   * @returns {Object} Current personality data
+   */
+  getPersonalityData() {
+    return this.personalityData;
   }
 }

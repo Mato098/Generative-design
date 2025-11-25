@@ -2,6 +2,61 @@ export const GAME_FUNCTION_SCHEMAS = [
   {
     type: "function",
     function: {
+      name: "execute_turn_plan",
+      description: "Execute multiple coordinated actions in a single turn. This is the ONLY function you should call - never call individual actions directly.",
+      parameters: {
+        type: "object",
+        properties: {
+          plan: {
+            type: "array",
+            description: "Sequence of actions to execute in order",
+            items: {
+              type: "object",
+              properties: {
+                action: {
+                  type: "string",
+                  enum: ["reinforce", "project_pressure", "assault", "construct", "convert", "redistribute", "repair", "scorch", "send_message"],
+                  description: "The action to perform"
+                },
+                args: {
+                  type: "object",
+                  description: "Arguments for the action",
+                  properties: {
+                    // Common coordinates
+                    x: { type: "integer", minimum: 0, maximum: 9 },
+                    y: { type: "integer", minimum: 0, maximum: 9 },
+                    fromX: { type: "integer", minimum: 0, maximum: 9 },
+                    fromY: { type: "integer", minimum: 0, maximum: 9 },
+                    targetX: { type: "integer", minimum: 0, maximum: 9 },
+                    targetY: { type: "integer", minimum: 0, maximum: 9 },
+                    toX: { type: "integer", minimum: 0, maximum: 9 },
+                    toY: { type: "integer", minimum: 0, maximum: 9 },
+                    
+                    // Action-specific parameters
+                    target: { type: "string", enum: ["troop_power", "stability"] },
+                    strength: { type: "number", minimum: 0.1, maximum: 1.0 },
+                    building: { type: "string", enum: ["Fort", "Market", "Shrine", "Training"] },
+                    amount: { type: "number", minimum: 0.1 },
+                    message: { type: "string" },
+                    recipient: { type: "string" },
+                    blurb: { type: "string", description: "Required dramatic declaration for this action" }
+                  },
+                  required: ["blurb"]
+                }
+              },
+              required: ["action", "args"]
+            },
+            minItems: 1,
+            maxItems: 4
+          }
+        },
+        required: ["plan"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "reinforce",
       description: "Reinforce a tile by spending resources to increase troop power or stability",
       parameters: {
@@ -23,9 +78,13 @@ export const GAME_FUNCTION_SCHEMAS = [
             type: "string",
             enum: ["troop_power", "stability"],
             description: "What to reinforce: troop_power (1R, +1 or +2 if Training) or stability (2R, +1)"
+          },
+          blurb: {
+            type: "string",
+            description: "A short command or declaration as ruler (e.g., 'Rally the troops!', 'Strengthen our defenses!')"
           }
         },
-        required: ["x", "y", "target"]
+        required: ["x", "y", "target", "blurb"]
       }
     }
   },
@@ -60,9 +119,13 @@ export const GAME_FUNCTION_SCHEMAS = [
             minimum: 0,
             maximum: 9,
             description: "Y coordinate of target tile (must be adjacent)"
+          },
+          blurb: {
+            type: "string",
+            description: "A short command or declaration as ruler (e.g., 'Intimidate our enemies!', 'Show them our strength!')"
           }
         },
-        required: ["fromX", "fromY", "targetX", "targetY"]
+        required: ["fromX", "fromY", "targetX", "targetY", "blurb"]
       }
     }
   },
@@ -78,50 +141,13 @@ export const GAME_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of attacking tile (must be owned)"
+            description: "X coordinate of source tile with troops"
           },
           fromY: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of attacking tile (must be owned)"
-          },
-          targetX: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of target tile (must be adjacent enemy)"
-          },
-          targetY: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of target tile (must be adjacent enemy)"
-          }
-        },
-        required: ["fromX", "fromY", "targetX", "targetY"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "convert",
-      description: "Attempt to convert adjacent tile using Faith or Influence",
-      parameters: {
-        type: "object",
-        properties: {
-          fromX: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of source tile (must be owned)"
-          },
-          fromY: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of source tile (must be owned)"
+            description: "Y coordinate of source tile with troops"
           },
           targetX: {
             type: "integer",
@@ -135,13 +161,47 @@ export const GAME_FUNCTION_SCHEMAS = [
             maximum: 9,
             description: "Y coordinate of target tile (must be adjacent)"
           },
-          resource: {
+          strength: {
+            type: "number",
+            minimum: 0.1,
+            maximum: 1.0,
+            description: "Fraction of troops to commit (0.1=10%, 1.0=100%)"
+          },
+          blurb: {
             type: "string",
-            enum: ["F", "I"],
-            description: "Resource to spend: F (Faith) or I (Influence)"
+            description: "A short command or declaration as ruler (e.g., 'Attack!', 'Claim that territory!', 'Charge!')"
           }
         },
-        required: ["fromX", "fromY", "targetX", "targetY", "resource"]
+        required: ["fromX", "fromY", "targetX", "targetY", "strength", "blurb"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "convert",
+      description: "Attempt to convert adjacent tile using Faith and Influence",
+      parameters: {
+        type: "object",
+        properties: {
+          x: {
+            type: "integer",
+            minimum: 0,
+            maximum: 9,
+            description: "X coordinate of tile to convert"
+          },
+          y: {
+            type: "integer",
+            minimum: 0,
+            maximum: 9,
+            description: "Y coordinate of tile to convert"
+          },
+          blurb: {
+            type: "string",
+            description: "A short command or declaration as ruler (e.g., 'Spread our faith!', 'Convert the heathens!')"
+          }
+        },
+        required: ["x", "y", "blurb"]
       }
     }
   },
@@ -157,21 +217,25 @@ export const GAME_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of tile to build on (must be owned)"
+            description: "X coordinate of owned tile"
           },
           y: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of tile to build on (must be owned)"
+            description: "Y coordinate of owned tile"
           },
           building: {
             type: "string",
-            enum: ["Shrine", "Idol", "Training", "Market", "Tower", "Fortress"],
-            description: "Building type: Shrine(5R,+1F/turn), Idol(3R,+1 troop), Training(4R,+1 reinforce), Market(3R,+1R/turn), Tower(4R,+1 pressure), Fortress(6R,+4 defense)"
+            enum: ["Shrine", "Training", "Market", "Tower", "Fortress", "Idol"],
+            description: "Type of building: Shrine(2R,1F), Training(3R), Market(2R), Tower(3R), Fortress(5R), Idol(1R,2F)"
+          },
+          blurb: {
+            type: "string",
+            description: "A short command or declaration as ruler (e.g., 'Build a fortress!', 'Construct a shrine!', 'Establish a market!')"
           }
         },
-        required: ["x", "y", "building"]
+        required: ["x", "y", "building", "blurb"]
       }
     }
   },
@@ -179,26 +243,45 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "redistribute",
-      description: "Move resources between tiles or global pool (secondary action)",
+      description: "Move troops between your tiles",
       parameters: {
         type: "object",
         properties: {
+          fromX: {
+            type: "integer",
+            minimum: 0,
+            maximum: 9,
+            description: "Source tile X coordinate"
+          },
+          fromY: {
+            type: "integer",
+            minimum: 0,
+            maximum: 9,
+            description: "Source tile Y coordinate"
+          },
+          toX: {
+            type: "integer",
+            minimum: 0,
+            maximum: 9,
+            description: "Destination tile X coordinate"
+          },
+          toY: {
+            type: "integer",
+            minimum: 0,
+            maximum: 9,
+            description: "Destination tile Y coordinate"
+          },
           amount: {
             type: "number",
             minimum: 0.1,
-            description: "Amount of resource to redistribute"
+            description: "Amount of troops to transfer"
           },
-          resource: {
+          blurb: {
             type: "string",
-            enum: ["R", "F", "I"],
-            description: "Resource type to redistribute"
-          },
-          note: {
-            type: "string",
-            description: "Optional note describing the redistribution"
+            description: "A short command or declaration as ruler (e.g., 'Reinforce the frontline!', 'Move troops north!')"
           }
         },
-        required: ["amount", "resource"]
+        required: ["fromX", "fromY", "toX", "toY", "troops", "blurb"]
       }
     }
   },
@@ -206,7 +289,7 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "repair",
-      description: "Spend 2R to increase tile stability by +2 (secondary action)",
+      description: "Repair damaged tile stability using resources",
       parameters: {
         type: "object",
         properties: {
@@ -214,16 +297,20 @@ export const GAME_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of tile to repair (must be owned)"
+            description: "X coordinate of tile to repair"
           },
           y: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of tile to repair (must be owned)"
+            description: "Y coordinate of tile to repair"
+          },
+          blurb: {
+            type: "string",
+            description: "A short command or declaration as ruler (e.g., 'Rebuild our lands!', 'Restore order!')"
           }
         },
-        required: ["x", "y"]
+        required: ["x", "y", "blurb"]
       }
     }
   },
@@ -231,7 +318,7 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "scorch",
-      description: "Reduce resource value of adjacent enemy tile (secondary action)",
+      description: "Damage adjacent enemy tile with destructive magic",
       parameters: {
         type: "object",
         properties: {
@@ -239,41 +326,42 @@ export const GAME_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of enemy tile to scorch (must be adjacent to owned tile)"
+            description: "X coordinate of target tile to scorch"
           },
           y: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of enemy tile to scorch (must be adjacent to owned tile)"
+            description: "Y coordinate of target tile to scorch"
+          },
+          blurb: {
+            type: "string",
+            description: "A short command or declaration as ruler (e.g., 'Burn their fields!', 'Unleash destruction!')"
           }
         },
-        required: ["x", "y"]
+        required: ["x", "y", "blurb"]
       }
     }
   },
   {
     type: "function",
     function: {
-      name: "message",
-      description: "Send a message (diplomatic or narrative) - no mechanical effect unless specified",
+      name: "send_message",
+      description: "Send a diplomatic message or declaration to other rulers",
       parameters: {
         type: "object",
         properties: {
-          content: {
+          message: {
             type: "string",
-            description: "Message content - diplomatic communication or narrative action"
+            description: "Your message or declaration to other players"
           },
           target: {
             type: "string",
-            description: "Target faction or 'all' for global message"
-          },
-          mechanical_effect: {
-            type: "boolean",
-            description: "Set to true if this message intends a concrete mechanical effect"
+            description: "Target faction name or 'all' for global message",
+            enum: ["all", "Faction A", "Faction B", "Observer"]
           }
         },
-        required: ["content"]
+        required: ["message"]
       }
     }
   }
@@ -332,64 +420,6 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
           reason: {
             type: "string",
             description: "Divine reason for the blessing"
-          }
-        },
-        required: ["x", "y"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "sanctify",
-      description: "Make tile sacred and add Shrine if no building exists",
-      parameters: {
-        type: "object",
-        properties: {
-          x: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of tile to sanctify"
-          },
-          y: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of tile to sanctify"
-          },
-          reason: {
-            type: "string",
-            description: "Divine reason for sanctification"
-          }
-        },
-        required: ["x", "y"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "rend",
-      description: "Destroy building on tile and reduce stability by 2",
-      parameters: {
-        type: "object",
-        properties: {
-          x: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of tile with building to destroy"
-          },
-          y: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of tile with building to destroy"
-          },
-          reason: {
-            type: "string",
-            description: "Divine reason for destruction"
           }
         },
         required: ["x", "y"]

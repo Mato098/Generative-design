@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
@@ -41,6 +44,7 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(message);
       
       if (data.type === 'observerAction') {
+        console.log(`Observer used ${data.action.type}:`, JSON.stringify(data.action.parameters));
         const result = await observer.executeAction(data.action);
         broadcastToAll({
           type: 'actionExecuted',
@@ -49,6 +53,7 @@ wss.on('connection', (ws) => {
       }
       
     } catch (error) {
+      console.error('WebSocket error:', error.message);
       ws.send(JSON.stringify({
         type: 'error',
         message: error.message

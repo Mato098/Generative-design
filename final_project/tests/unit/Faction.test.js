@@ -43,58 +43,37 @@ describe('Faction', () => {
   test('should initialize with correct properties', () => {
     expect(faction.name).toBe('TestFaction');
     expect(faction.personality).toBe('aggressive');
-    expect(faction.resources).toEqual({ R: 10, F: 5, I: 3 });
-    expect(faction.actionsThisTurn).toEqual({ primary: null, secondary: null });
+    expect(faction.resources).toEqual({ R: 15, F: 8, I: 5 });
     expect(faction.isActive).toBe(false);
   });
   
   describe('resource management', () => {
     test('should add resources correctly', () => {
       faction.addResources(2, 3, 1);
-      expect(faction.resources).toEqual({ R: 12, F: 8, I: 4 });
+      expect(faction.resources).toEqual({ R: 17, F: 11, I: 6 });
     });
     
     test('should check affordability correctly', () => {
       expect(faction.canAfford({ R: 5, F: 3 })).toBe(true);
-      expect(faction.canAfford({ R: 15 })).toBe(false);
-      expect(faction.canAfford({ I: 5 })).toBe(false);
+      expect(faction.canAfford({ R: 20 })).toBe(false);
+      expect(faction.canAfford({ I: 10 })).toBe(false);
     });
     
     test('should spend resources correctly', () => {
       faction.spendResources({ R: 3, F: 1 });
-      expect(faction.resources).toEqual({ R: 7, F: 4, I: 3 });
+      expect(faction.resources).toEqual({ R: 12, F: 7, I: 5 });
     });
     
     test('should throw error when spending more than available', () => {
       expect(() => {
-        faction.spendResources({ R: 15 });
+        faction.spendResources({ R: 20 });
       }).toThrow('Insufficient resources');
     });
   });
   
-  describe('action tracking', () => {
-    test('should track primary actions', () => {
-      expect(faction.hasUsedPrimaryAction()).toBe(false);
-      faction.recordAction('Reinforce', true);
-      expect(faction.hasUsedPrimaryAction()).toBe(true);
-      expect(faction.actionsThisTurn.primary).toBe('Reinforce');
-    });
-    
-    test('should track secondary actions', () => {
-      expect(faction.hasUsedSecondaryAction()).toBe(false);
-      faction.recordAction('Convert', false);
-      expect(faction.hasUsedSecondaryAction()).toBe(true);
-      expect(faction.actionsThisTurn.secondary).toBe('Convert');
-    });
-    
-    test('should reset actions on turn start', () => {
-      faction.recordAction('Reinforce', true);
-      faction.recordAction('Convert', false);
-      
+  describe('turn management', () => {
+    test('should start turn correctly', () => {
       faction.startTurn();
-      
-      expect(faction.hasUsedPrimaryAction()).toBe(false);
-      expect(faction.hasUsedSecondaryAction()).toBe(false);
       expect(faction.isActive).toBe(true);
     });
     
@@ -107,13 +86,13 @@ describe('Faction', () => {
   
   test('should clone correctly', () => {
     faction.addResources(5, 2, 1);
-    faction.recordAction('Reinforce', true);
+    faction.startTurn();
     
     const clone = faction.clone();
     
     expect(clone.name).toBe(faction.name);
     expect(clone.resources).toEqual(faction.resources);
-    expect(clone.actionsThisTurn).toEqual(faction.actionsThisTurn);
+    expect(clone.isActive).toBe(faction.isActive);
     
     // Ensure it's a deep copy
     clone.resources.R = 999;

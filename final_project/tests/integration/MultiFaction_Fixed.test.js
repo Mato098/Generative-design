@@ -106,7 +106,9 @@ describe('Multi-Faction Game Scenarios (with MOCK AI agents) - FIXED', () => {
       
       expect(result.success).toBe(true);
       const factionA = gameEngine.gameState.factions.get('Faction A');
-      expect(factionA.hasUsedPrimaryAction()).toBe(true);
+      // In unlimited action system, we verify the action was executed by checking tile state
+      const tile = gameEngine.gameState.getTile(1, 1);
+      expect(tile.troop_power).toBeGreaterThan(5); // Should have increased from initial value of 5
     });
 
     test('should handle faction reinforcement', async () => {
@@ -320,7 +322,7 @@ describe('Multi-Faction Game Scenarios (with MOCK AI agents) - FIXED', () => {
       Object.values(jsonState.factions).forEach(faction => {
         expect(faction).toHaveProperty('name');
         expect(faction).toHaveProperty('resources');
-        expect(faction).toHaveProperty('actionsThisTurn');
+        expect(faction).toHaveProperty('personality');  // Check for faction personality instead of actionsThisTurn
       });
     });
   });

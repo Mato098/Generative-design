@@ -1,22 +1,8 @@
 export class ActionValidator {
-  validateAction(action, gameState, playerName, isPrimary) {
+  validateAction(action, gameState, playerName) {
     const faction = gameState.factions.get(playerName);
     
-    // Check if action type is allowed
-    if (isPrimary && faction.hasUsedPrimaryAction()) {
-      return { valid: false, error: 'Primary action already used this turn' };
-    }
-    
-    if (!isPrimary && faction.hasUsedSecondaryAction()) {
-      return { valid: false, error: 'Secondary action already used this turn' };
-    }
-    
-    // Check action category conflicts
-    if (!isPrimary && this.hasActionCategoryConflict(action.type, faction.actionsThisTurn.primary)) {
-      return { valid: false, error: 'Secondary action conflicts with primary action category' };
-    }
-    
-    // Validate specific action
+    // No action limits anymore - validate specific action
     switch (action.type) {
       case 'Reinforce':
         return this.validateReinforce(action, gameState, playerName);
@@ -37,14 +23,6 @@ export class ActionValidator {
       default:
         return { valid: false, error: `Unknown action type: ${action.type}` };
     }
-  }
-
-  hasActionCategoryConflict(secondaryType, primaryType) {
-    // Cannot Reinforce + Repair in same turn (both affect stability/troops)
-    if (secondaryType === 'Repair' && primaryType === 'Reinforce') {
-      return true;
-    }
-    return false;
   }
 
   validateReinforce(action, gameState, playerName) {
@@ -140,35 +118,40 @@ export class ActionValidator {
   }
 
   validateConvert(action, gameState, playerName) {
-    const { fromX, fromY, targetX, targetY, resource } = action.parameters;
-    const fromTile = gameState.getTile(fromX, fromY);
-    const targetTile = gameState.getTile(targetX, targetY);
+    const { x, y } = action.parameters;
+    const targetTile = gameState.getTile(x, y);
     const faction = gameState.factions.get(playerName);
     
-    if (!fromTile || !targetTile) {
+    if (!targetTile) {
       return { valid: false, error: 'Invalid tile coordinates' };
-    }
-    
-    if (fromTile.owner !== playerName) {
-      return { valid: false, error: 'Can only convert from owned tiles' };
     }
     
     if (targetTile.owner === playerName) {
       return { valid: false, error: 'Cannot convert own tiles' };
     }
     
-    if (!this.areAdjacent(fromX, fromY, targetX, targetY)) {
-      return { valid: false, error: 'Tiles must be adjacent' };
+    // Check if player has an adjacent tile to convert from
+    let hasAdjacentTile = false;
+    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+    for (const [dx, dy] of directions) {
+      const adjX = x + dx;
+      const adjY = y + dy;
+      if (adjX >= 0 && adjX < 10 && adjY >= 0 && adjY < 10) {
+        const adjTile = gameState.getTile(adjX, adjY);
+        if (adjTile && adjTile.owner === playerName) {
+          hasAdjacentTile = true;
+          break;
+        }
+      }
     }
     
-    if (resource !== 'F' && resource !== 'I') {
-      return { valid: false, error: 'Must spend Faith (F) or Influence (I)' };
+    if (!hasAdjacentTile) {
+      return { valid: false, error: 'Must have adjacent tile to convert from' };
     }
     
-    const cost = {};
-    cost[resource] = 2;
-    if (!faction.canAfford(cost)) {
-      return { valid: false, error: `Insufficient ${resource === 'F' ? 'Faith' : 'Influence'} (need 2)` };
+    // Use Faith by default for conversion (2F + 1I cost)
+    if (!faction.canAfford({ F: 2, I: 1 })) {
+      return { valid: false, error: 'Insufficient resources (need 2F + 1I)' };
     }
     
     return { valid: true };
@@ -213,20 +196,29 @@ export class ActionValidator {
   }
 
   validateRedistribute(action, gameState, playerName) {
-    // Simple resource redistribution - just check if faction has the resources
-    const faction = gameState.factions.get(playerName);
-    const { amount, resource } = action.parameters;
+    // Troop redistribution between tiles
+    const { fromX, fromY, toX, toY, amount } = action.parameters;
     
+    // Validate coordinates
+    if (!this.isValidCoordinate(fromX, fromY) || !this.isValidCoordinate(toX, toY)) {
+      return { valid: false, error: 'Invalid coordinates' };
+    }
+    
+    const fromTile = gameState.getTile(fromX, fromY);
+    const toTile = gameState.getTile(toX, toY);
+    
+    // Check ownership
+    if (fromTile.owner !== playerName || toTile.owner !== playerName) {
+      return { valid: false, error: 'Can only redistribute between your own tiles' };
+    }
+    
+    // Check amount
     if (amount <= 0) {
       return { valid: false, error: 'Amount must be positive' };
     }
     
-    if (!['R', 'F', 'I'].includes(resource)) {
-      return { valid: false, error: 'Invalid resource type' };
-    }
-    
-    if (faction.resources[resource] < amount) {
-      return { valid: false, error: `Insufficient ${resource}` };
+    if (fromTile.troop_power < amount) {
+      return { valid: false, error: 'Insufficient troops to transfer' };
     }
     
     return { valid: true };

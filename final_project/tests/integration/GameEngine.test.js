@@ -161,11 +161,13 @@ describe('GameEngine Integration Tests (with MOCK AI agents)', () => {
         parameters: { x: 1, y: 1, target: 'troop_power' }
       };
       
-      await gameEngine.executeAction(action, 'TestFaction', true);
+      const result = await gameEngine.executeAction(action, 'TestFaction', true);
       
       const faction = gameEngine.gameState.factions.get('TestFaction');
-      expect(faction.hasUsedPrimaryAction()).toBe(true);
-      expect(faction.actionsThisTurn.primary).toBe('Reinforce');
+      expect(result.success).toBe(true);
+      // In unlimited action system, verify action was executed by checking tile state
+      const tile = gameEngine.gameState.getTile(1, 1);
+      expect(tile.troop_power).toBeGreaterThan(5); // Should have increased from initial value of 5
     });
   });
   
@@ -301,16 +303,16 @@ describe('GameEngine Integration Tests (with MOCK AI agents)', () => {
       expect(['Faction A', 'Faction B', 'Observer']).toContain(fourthPlayer);
     });
     
-    test('should reset faction actions on new turn', () => {
+    test('should handle faction turn cycling correctly', () => {
       const faction = gameEngine.gameState.factions.get('Faction A');
       
-      // Use an action
-      faction.recordAction('Reinforce', true);
-      expect(faction.hasUsedPrimaryAction()).toBe(true);
+      // Test that faction exists and can start turns 
+      expect(faction).toBeDefined();
+      expect(faction.name).toBe('Faction A');
       
-      // Start new turn
+      // Start new turn - this should work without errors in unlimited action system
       faction.startTurn();
-      expect(faction.hasUsedPrimaryAction()).toBe(false);
+      expect(faction.isActive).toBe(true);
     });
   });
   
