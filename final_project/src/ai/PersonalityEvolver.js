@@ -24,11 +24,11 @@ export class PersonalityEvolver {
       
       const startTime = Date.now();
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-5.1-2025-11-13",
         messages: [
           {
             role: "system",
-            content: "You are a personality evolution specialist. Given AI personalities and a divine event, make subtle but meaningful changes to how these personalities might evolve in response. Keep core traits but allow for growth, trauma, enlightenment, or rebellion as appropriate. Return ONLY valid JSON with the same structure as input."
+            content: "You are a personality evolution specialist. Given AI personalities of rulers/monarchs and a divine event, make subtle(or not) but meaningful changes to how these personalities might evolve in response. Keep core traits but allow for growth, trauma, enlightenment, or rebellion as appropriate. Return ONLY valid JSON with the same structure as input."
           },
           {
             role: "user",
@@ -88,25 +88,25 @@ Return the evolved personalities as valid JSON:`;
     
     switch (type.toLowerCase()) {
       case 'smite':
-        return `Divine Wrath - The god smote (${parameters.x},${parameters.y})${targetInfo}, destroying troops and destabilizing the land. ${parameters.reason || 'No reason given'}.`;
+        return `Divine Power Manifested - A force struck (${parameters.x},${parameters.y})${targetInfo}, annihilating all troops. ${parameters.reason || 'The powers offered no explanation'}.`;
         
       case 'bless':
-        return `Divine Blessing - The god blessed (${parameters.x},${parameters.y})${targetInfo}, stabilizing the land and granting resources. ${parameters.reason || 'No reason given'}.`;
+        return `Divine Power Manifested - Energy surged at (${parameters.x},${parameters.y})${targetInfo}, conjuring troops and resources. ${parameters.reason || 'The powers offered no explanation'}.`;
         
       case 'meteor':
-        return `Divine Cataclysm - The god summoned a meteor at (${parameters.centerX || parameters.x},${parameters.centerY || parameters.y})${targetInfo}, affecting a 3x3 area with widespread destruction. ${parameters.reason || 'No reason given'}.`;
+        return `Celestial Event - Fire fell at (${parameters.centerX || parameters.x},${parameters.centerY || parameters.y})${targetInfo}, devastating a 3x3 area. ${parameters.reason || 'The powers offered no explanation'}.`;
         
       case 'observe':
-        return `Divine Observation - The god watched and commented: "${parameters.commentary || 'Silent observation'}"`;
+        return `Divine Voice - The powers spoke: "${parameters.commentary || 'Silence'}"`;
         
       case 'sanctify':
-        return `Divine Sanctification - The god sanctified (${parameters.x},${parameters.y})${targetInfo}, granting great blessings and stability. ${parameters.reason || 'No reason given'}.`;
+        return `Divine Power Manifested - A surge blessed (${parameters.x},${parameters.y})${targetInfo}, empowering the land. ${parameters.reason || 'The powers offered no explanation'}.`;
         
       case 'rend':
-        return `Divine Destruction - The god rent (${parameters.x},${parameters.y})${targetInfo}, tearing apart troops and buildings. ${parameters.reason || 'No reason given'}.`;
+        return `Divine Power Manifested - Destruction consumed (${parameters.x},${parameters.y})${targetInfo}, obliterating all. ${parameters.reason || 'The powers offered no explanation'}.`;
         
       default:
-        return `Divine Intervention - The god performed ${type}${targetInfo} with parameters: ${JSON.stringify(parameters)}`;
+        return `Divine Event - The powers acted at${targetInfo}: ${type}`;
     }
   }
 

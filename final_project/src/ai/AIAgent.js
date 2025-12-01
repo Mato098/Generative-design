@@ -34,7 +34,8 @@ export class AIAgent {
 
       const startTime = Date.now();
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-5-nano-2025-08-07',
+        //model: 'gpt-5-nano-2025-08-07',
+        model: 'gpt-5.1-2025-11-13',
         messages: [
           { role: 'system', content: systemPrompt },
           ...this.conversationHistory
@@ -114,10 +115,10 @@ export class AIAgent {
 
   buildSystemPrompt() {
     let prompt = this.name + ' - 10x10 strategy ruler. Goal: 50+ tiles.\n';
-    prompt += 'ONLY use execute_turn_plan() with 2-4 actions + blurbs.\n';
-    prompt += 'Actions: assault, reinforce, convert, construct, project_pressure, redistribute, repair, scorch, send_message\n';
+    prompt += 'ONLY use execute_turn_plan() with any number of actions + blurbs.\n';
+    prompt += 'Actions: assault, recruit, convert, construct, redistribute, scorch, send_message\n';
     prompt += 'use send_message often to talk to other factions or to pray. expand aggresively to win as soon as possible'
-    prompt += 'Gods may be real. Divine blessings/smites affect tiles. Acknowledge divine acts in messages.\n';
+    prompt += 'Divine powers exist. They may favor, punish, or test mortals. Respond to their acts however you see fit.\n';
     prompt += this.personality ? this.getPersonalityPrompt() : 'Aggressive expansion.';
     return prompt;
   }
@@ -139,7 +140,7 @@ export class AIAgent {
     // Final fallback for unknown personalities
     const basicPrompts = {
       aggressive: "Aggressive expansionist. Prioritize assault actions and territorial conquest.",
-      defensive: "Defensive strategist. Fortify territory, use ProjectPressure on enemies.",
+      defensive: "Defensive strategist. Fortify territory, recruit troops heavily.",
       diplomatic: "Diplomatic manipulator. Use Convert and influence tactics.",
       economic: "Economic focused. Secure resource tiles, build Markets after expansion.",
       religious: "Religious zealot. Build Shrines, use Convert, seek sacred sites.",
@@ -185,18 +186,22 @@ export class AIAgent {
       
       // Only show divine section if there are meaningful actions
       if (meaningfulActions.length > 0) {
-        message += '\n✨ DIVINE: ';
+        message += '\n⚡ DIVINE: ';
         
         meaningfulActions.forEach(action => {
           if (action.type === 'observe') {
-            const command = action.parameters.commentary || action.parameters.message;
-            message += '"' + command.trim() + '" ';
+            const commentary = action.parameters.commentary || action.parameters.message;
+            // Present as natural phenomenon, not as labeled message
+            message += 'The powers speak: ' + commentary.trim() + '. ';
           } else if (action.type === 'bless') {
-            message += 'Blessed(' + action.parameters.x + ',' + action.parameters.y + ') ';
+            const reason = action.parameters.reason ? ' (' + action.parameters.reason + ')' : '';
+            message += 'Divine power surged at (' + action.parameters.x + ',' + action.parameters.y + ')' + reason + '. ';
           } else if (action.type === 'smite') {
-            message += 'Smote(' + action.parameters.x + ',' + action.parameters.y + ') ';
+            const reason = action.parameters.reason ? ' (' + action.parameters.reason + ')' : '';
+            message += 'Divine force struck (' + action.parameters.x + ',' + action.parameters.y + ')' + reason + '. ';
           } else if (action.type === 'meteor') {
-            message += 'Meteor(' + action.parameters.x + ',' + action.parameters.y + ') ';
+            const reason = action.parameters.reason ? ' (' + action.parameters.reason + ')' : '';
+            message += 'Fire fell from above at (' + action.parameters.centerX + ',' + action.parameters.centerY + ')' + reason + '. ';
           }
         });
         
@@ -224,7 +229,7 @@ export class AIAgent {
     
     message += 'Enemies: ' + enemyInfo.join(' ');
     message += this.analyzeStrategicSituation(gameState.grid, ownedTiles);
-    message += '\nUse execute_turn_plan() with 2-4 actions.';
+    message += '\nUse execute_turn_plan() with any number of actions.';
     
     return message;
   }
@@ -332,13 +337,11 @@ export class AIAgent {
 
   mapFunctionToActionType(functionName) {
     const mapping = {
-      'reinforce': 'Reinforce',
-      'project_pressure': 'ProjectPressure',
+      'recruit': 'Reinforce',
       'assault': 'Assault',
       'convert': 'Convert',
       'construct': 'Construct',
       'redistribute': 'Redistribute',
-      'repair': 'Repair',
       'scorch': 'Scorch',
       'message': 'Message'
     };

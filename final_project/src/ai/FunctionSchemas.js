@@ -15,7 +15,7 @@ export const GAME_FUNCTION_SCHEMAS = [
               properties: {
                 action: {
                   type: "string",
-                  enum: ["reinforce", "project_pressure", "assault", "construct", "convert", "redistribute", "repair", "scorch", "send_message"],
+                  enum: ["recruit", "assault", "construct", "convert", "redistribute", "scorch", "send_message"],
                   description: "The action to perform"
                 },
                 args: {
@@ -33,10 +33,9 @@ export const GAME_FUNCTION_SCHEMAS = [
                     toY: { type: "integer", minimum: 0, maximum: 9 },
                     
                     // Action-specific parameters
-                    target: { type: "string", enum: ["troop_power", "stability"] },
+                    amount: { type: "number", minimum: 0.1, description: "Amount for recruit/redistribute actions" },
                     strength: { type: "number", minimum: 0.1, maximum: 1.0 },
-                    building: { type: "string", enum: ["Fort", "Market", "Shrine", "Training"] },
-                    amount: { type: "number", minimum: 0.1 },
+                    building: { type: "string", enum: ["Shrine", "Idol", "Training", "Market", "Tower", "Fortress"] },
                     message: { type: "string" },
                     recipient: { type: "string" },
                     blurb: { type: "string", description: "Required dramatic declaration for this action" }
@@ -46,8 +45,8 @@ export const GAME_FUNCTION_SCHEMAS = [
               },
               required: ["action", "args"]
             },
-            minItems: 1,
-            maxItems: 4
+            minItems: 1
+            // No maxItems - unlimited actions per turn
           }
         },
         required: ["plan"]
@@ -57,8 +56,8 @@ export const GAME_FUNCTION_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "reinforce",
-      description: "Reinforce a tile by spending resources to increase troop power or stability",
+      name: "recruit",
+      description: "Recruit troops on owned tile. Costs 1R per troop. Training building doubles recruitment.",
       parameters: {
         type: "object",
         properties: {
@@ -66,66 +65,25 @@ export const GAME_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of the tile to reinforce"
+            description: "X coordinate of the tile to recruit on"
           },
           y: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of the tile to reinforce"
+            description: "Y coordinate of the tile to recruit on"
           },
-          target: {
-            type: "string",
-            enum: ["troop_power", "stability"],
-            description: "What to reinforce: troop_power (1R, +1 or +2 if Training) or stability (2R, +1)"
+          amount: {
+            type: "number",
+            minimum: 1,
+            description: "Number of troops to recruit (costs 1R each, doubled with Training building). Default: 1"
           },
           blurb: {
             type: "string",
             description: "A short command or declaration as ruler (e.g., 'Rally the troops!', 'Strengthen our defenses!')"
           }
         },
-        required: ["x", "y", "target", "blurb"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "project_pressure",
-      description: "Project pressure from owned tile to adjacent target, reducing target stability",
-      parameters: {
-        type: "object",
-        properties: {
-          fromX: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of source tile (must be owned)"
-          },
-          fromY: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of source tile (must be owned)"
-          },
-          targetX: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of target tile (must be adjacent)"
-          },
-          targetY: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of target tile (must be adjacent)"
-          },
-          blurb: {
-            type: "string",
-            description: "A short command or declaration as ruler (e.g., 'Intimidate our enemies!', 'Show them our strength!')"
-          }
-        },
-        required: ["fromX", "fromY", "targetX", "targetY", "blurb"]
+        required: ["x", "y", "blurb"]
       }
     }
   },
@@ -278,7 +236,7 @@ export const GAME_FUNCTION_SCHEMAS = [
           },
           blurb: {
             type: "string",
-            description: "A short command or declaration as ruler (e.g., 'Reinforce the frontline!', 'Move troops north!')"
+            description: "A short command or declaration as ruler (e.g., 'Redeploy our forces!', 'Move troops north!')"
           }
         },
         required: ["fromX", "fromY", "toX", "toY", "troops", "blurb"]
@@ -288,37 +246,8 @@ export const GAME_FUNCTION_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "repair",
-      description: "Repair damaged tile stability using resources",
-      parameters: {
-        type: "object",
-        properties: {
-          x: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "X coordinate of tile to repair"
-          },
-          y: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Y coordinate of tile to repair"
-          },
-          blurb: {
-            type: "string",
-            description: "A short command or declaration as ruler (e.g., 'Rebuild our lands!', 'Restore order!')"
-          }
-        },
-        required: ["x", "y", "blurb"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
       name: "scorch",
-      description: "Damage adjacent enemy tile with destructive magic",
+      description: "Damage adjacent enemy tile, removing 5 troops. Costs 2R.",
       parameters: {
         type: "object",
         properties: {
@@ -372,7 +301,7 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "smite",
-      description: "Divine punishment: set troop_power to 0 and reduce stability by 3",
+      description: "Divine power: destroy all troops on target tile",
       parameters: {
         type: "object",
         properties: {
@@ -380,17 +309,17 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of tile to smite"
+            description: "X coordinate of tile"
           },
           y: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of tile to smite"
+            description: "Y coordinate of tile"
           },
           reason: {
             type: "string",
-            description: "Divine reason for the smiting"
+            description: "Why this tile (optional)"
           }
         },
         required: ["x", "y"]
@@ -401,7 +330,7 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "bless",
-      description: "Divine blessing: set stability to 10 and give owner +2 Faith",
+      description: "Divine power: add 5 troops to tile and give owner +2 Faith",
       parameters: {
         type: "object",
         properties: {
@@ -409,17 +338,17 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "X coordinate of tile to bless"
+            description: "X coordinate of tile"
           },
           y: {
             type: "integer",
             minimum: 0,
             maximum: 9,
-            description: "Y coordinate of tile to bless"
+            description: "Y coordinate of tile"
           },
           reason: {
             type: "string",
-            description: "Divine reason for the blessing"
+            description: "Why this tile (optional)"
           }
         },
         required: ["x", "y"]
@@ -430,7 +359,7 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "meteor",
-      description: "Meteor strike in 3x3 area: -50% troop power, -3 stability",
+      description: "Divine cataclysm: destroys half the troops in 3x3 area",
       parameters: {
         type: "object",
         properties: {
@@ -438,17 +367,17 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
             type: "integer",
             minimum: 1,
             maximum: 8,
-            description: "X coordinate of meteor center (1-8 to ensure 3x3 area fits)"
+            description: "X coordinate of impact center (1-8 ensures 3x3 fits)"
           },
           centerY: {
             type: "integer",
             minimum: 1,
             maximum: 8,
-            description: "Y coordinate of meteor center (1-8 to ensure 3x3 area fits)"
+            description: "Y coordinate of impact center (1-8 ensures 3x3 fits)"
           },
           reason: {
             type: "string",
-            description: "Divine reason for meteor strike"
+            description: "Why here (optional)"
           }
         },
         required: ["centerX", "centerY"]
@@ -459,16 +388,16 @@ export const OBSERVER_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "observe",
-      description: "Take no action this turn, just observe the unfolding drama",
+      description: "Watch without acting, optionally speak to the mortals",
       parameters: {
         type: "object",
         properties: {
           commentary: {
             type: "string",
-            description: "Divine commentary on the current state of the game"
+            description: "Words for the mortals to hear (optional)"
           }
         },
-        required: ["commentary"]
+        required: []
       }
     }
   }

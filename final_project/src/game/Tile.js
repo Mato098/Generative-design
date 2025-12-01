@@ -4,8 +4,7 @@ export class Tile {
     this.y = y;
     this.owner = 'Neutral'; // 'Faction A', 'Faction B', 'Neutral'
     this.type = type; // 'plains', 'forest', 'hill', 'ruin', 'sacred'
-    this.troop_power = 0.0;
-    this.stability = 5.0; // [0,10]
+    this.troop_power = 1.0; // Neutral tiles start with 1 troop
     this.building = 'none'; // 'none', 'Shrine', 'Idol', 'Training', 'Market', 'Tower', 'Fortress'
     this.resource_value = this.getBaseResourceValue();
   }
@@ -55,7 +54,6 @@ export class Tile {
     const newTile = new Tile(this.x, this.y, this.type);
     newTile.owner = this.owner;
     newTile.troop_power = this.troop_power;
-    newTile.stability = this.stability;
     newTile.building = this.building;
     newTile.resource_value = this.resource_value;
     return newTile;

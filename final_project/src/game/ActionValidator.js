@@ -6,8 +6,6 @@ export class ActionValidator {
     switch (action.type) {
       case 'Reinforce':
         return this.validateReinforce(action, gameState, playerName);
-      case 'ProjectPressure':
-        return this.validateProjectPressure(action, gameState, playerName);
       case 'Assault':
         return this.validateAssault(action, gameState, playerName);
       case 'Convert':
@@ -16,8 +14,6 @@ export class ActionValidator {
         return this.validateConstruct(action, gameState, playerName);
       case 'Redistribute':
         return this.validateRedistribute(action, gameState, playerName);
-      case 'Repair':
-        return this.validateRepair(action, gameState, playerName);
       case 'Scorch':
         return this.validateScorch(action, gameState, playerName);
       default:
@@ -26,7 +22,7 @@ export class ActionValidator {
   }
 
   validateReinforce(action, gameState, playerName) {
-    const { x, y, target } = action.parameters;
+    const { x, y, amount = 1 } = action.parameters;
     const tile = gameState.getTile(x, y);
     const faction = gameState.factions.get(playerName);
     
@@ -35,50 +31,20 @@ export class ActionValidator {
     }
     
     if (tile.owner !== playerName) {
-      return { valid: false, error: 'Can only reinforce owned tiles' };
+      return { valid: false, error: 'Can only recruit troops on owned tiles' };
     }
     
-    if (target === 'troop_power') {
-      if (!faction.canAfford({ R: 1 })) {
-        return { valid: false, error: 'Insufficient resources (need 1 R)' };
-      }
-      if (tile.troop_power >= 50) {
-        return { valid: false, error: 'Troop power already at maximum (50)' };
-      }
-    } else if (target === 'stability') {
-      if (!faction.canAfford({ R: 2 })) {
-        return { valid: false, error: 'Insufficient resources (need 2 R)' };
-      }
-      if (tile.stability >= 10) {
-        return { valid: false, error: 'Stability already at maximum (10)' };
-      }
-    } else {
-      return { valid: false, error: 'Invalid reinforce target (must be troop_power or stability)' };
+    if (amount < 1) {
+      return { valid: false, error: 'Amount must be at least 1' };
     }
     
-    return { valid: true };
-  }
-
-  validateProjectPressure(action, gameState, playerName) {
-    const { fromX, fromY, targetX, targetY } = action.parameters;
-    const fromTile = gameState.getTile(fromX, fromY);
-    const targetTile = gameState.getTile(targetX, targetY);
-    const faction = gameState.factions.get(playerName);
-    
-    if (!fromTile || !targetTile) {
-      return { valid: false, error: 'Invalid tile coordinates' };
+    const cost = amount; // 1R per troop
+    if (!faction.canAfford({ R: cost })) {
+      return { valid: false, error: `Insufficient resources (need ${cost} R)` };
     }
     
-    if (fromTile.owner !== playerName) {
-      return { valid: false, error: 'Can only project pressure from owned tiles' };
-    }
-    
-    if (!this.areAdjacent(fromX, fromY, targetX, targetY)) {
-      return { valid: false, error: 'Tiles must be adjacent' };
-    }
-    
-    if (!faction.canAfford({ R: 1 })) {
-      return { valid: false, error: 'Insufficient resources (need 1 R)' };
+    if (tile.troop_power >= 50) {
+      return { valid: false, error: 'Troop power already at maximum (50)' };
     }
     
     return { valid: true };
@@ -224,30 +190,6 @@ export class ActionValidator {
     return { valid: true };
   }
 
-  validateRepair(action, gameState, playerName) {
-    const { x, y } = action.parameters;
-    const tile = gameState.getTile(x, y);
-    const faction = gameState.factions.get(playerName);
-    
-    if (!tile) {
-      return { valid: false, error: 'Invalid tile coordinates' };
-    }
-    
-    if (tile.owner !== playerName) {
-      return { valid: false, error: 'Can only repair owned tiles' };
-    }
-    
-    if (!faction.canAfford({ R: 2 })) {
-      return { valid: false, error: 'Insufficient resources (need 2 R)' };
-    }
-    
-    if (tile.stability >= 10) {
-      return { valid: false, error: 'Stability already at maximum (10)' };
-    }
-    
-    return { valid: true };
-  }
-
   validateScorch(action, gameState, playerName) {
     const { x, y } = action.parameters;
     const tile = gameState.getTile(x, y);
@@ -265,12 +207,12 @@ export class ActionValidator {
       return { valid: false, error: 'Cannot scorch neutral tiles' };
     }
     
-    if (!faction.canAfford({ R: 1 })) {
-      return { valid: false, error: 'Insufficient resources (need 1 R)' };
+    if (!faction.canAfford({ R: 2 })) {
+      return { valid: false, error: 'Insufficient resources (need 2 R)' };
     }
     
-    if (tile.resource_value <= 0) {
-      return { valid: false, error: 'Tile has no resource value to reduce' };
+    if (tile.troop_power <= 0) {
+      return { valid: false, error: 'No troops to scorch' };
     }
     
     // Check if tile is adjacent to any owned tile

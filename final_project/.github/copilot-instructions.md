@@ -107,7 +107,7 @@ validateAction(gameState, factionName, parameters) {
 const context = {
   gameState: this.gameState.getPublicState(),
   faction: faction,
-  availableActions: ['Reinforce', 'Assault', 'Convert', ...],
+  availableActions: ['Assault', 'Convert', ...],
   recentObserverActions: this.gameState.observerActions.slice(-3)
 };
 ```

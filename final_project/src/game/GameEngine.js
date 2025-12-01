@@ -58,8 +58,7 @@ export class GameEngine {
       const tile = this.gameState.getTile(x, y);
       if (tile) {
         tile.owner = factionNames[i];
-        tile.troop_power = 5;
-        tile.stability = 8;
+        tile.troop_power = 10; // Starting troops
       }
     }
   }
@@ -200,7 +199,7 @@ export class GameEngine {
   getAvailableActions() {
     // All actions are always available - no limitations
     return {
-      actions: ['Reinforce', 'ProjectPressure', 'Assault', 'Convert', 'Construct', 'Redistribute', 'Repair', 'Scorch'],
+      actions: ['Reinforce', 'Assault', 'Convert', 'Construct', 'Redistribute', 'Scorch'],
       messaging: ['send_message']
     };
   }
@@ -254,8 +253,6 @@ export class GameEngine {
     switch (action.type) {
       case 'Reinforce':
         return this.applyReinforceAction(action, playerName);
-      case 'ProjectPressure':
-        return this.applyProjectPressureAction(action, playerName);
       case 'Assault':
         return this.applyAssaultAction(action, playerName);
       case 'Convert':
@@ -264,8 +261,6 @@ export class GameEngine {
         return this.applyConstructAction(action, playerName);
       case 'Redistribute':
         return this.applyRedistributeAction(action, playerName);
-      case 'Repair':
-        return this.applyRepairAction(action, playerName);
       case 'Scorch':
         return this.applyScorchAction(action, playerName);
       default:
@@ -277,56 +272,30 @@ export class GameEngine {
   applyReinforceAction(action, playerName) {
     const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
     const faction = this.gameState.factions.get(playerName);
+    const amount = action.parameters.amount || 1;
     
     // DEBUG: Before state
-    console.log(`   🛡️ REINFORCE (${action.parameters.x},${action.parameters.y}) target: ${action.parameters.target}`);
-    console.log(`   📍 Tile state: troops=${tile.troop_power.toFixed(1)}, stability=${tile.stability.toFixed(1)}, owner=${tile.owner}, building=${tile.building || 'none'}`);
+    console.log(`   🛡️ RECRUIT (${action.parameters.x},${action.parameters.y}) amount: ${amount}`);
+    console.log(`   📍 Tile state: troops=${tile.troop_power.toFixed(1)}, owner=${tile.owner}, building=${tile.building || 'none'}`);
     console.log(`   💰 ${playerName} resources: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}, I=${faction.resources.I.toFixed(1)}`);
     
-    if (action.parameters.target === 'troop_power') {
-      faction.spendResources({ R: 1 });
-      const oldPower = tile.troop_power;
-      const bonus = tile.building === 'Training' ? 2 : 1;
-      tile.troop_power += bonus;
-      tile.troop_power = Math.min(tile.troop_power, 50); // Cap at 50
-      
-      console.log(`   ⚡ Troop reinforcement: +${bonus} (${tile.building === 'Training' ? 'Training ground bonus' : 'standard'})`);
-      console.log(`   📈 Troops: ${oldPower.toFixed(1)}→${tile.troop_power.toFixed(1)} (cost: 1R)`);
-      console.log(`   💰 ${playerName} resources after: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}, I=${faction.resources.I.toFixed(1)}`);
-      
-      return {
-        type: 'troop_power_change',
-        tile: { x: tile.x, y: tile.y },
-        oldValue: oldPower,
-        newValue: tile.troop_power
-      };
-    } else if (action.parameters.target === 'stability') {
-      faction.spendResources({ R: 2 });
-      const oldStability = tile.stability;
-      tile.stability = Math.min(tile.stability + 1, 10);
-      
-      return {
-        type: 'stability_change',
-        tile: { x: tile.x, y: tile.y },
-        oldValue: oldStability,
-        newValue: tile.stability
-      };
-    }
-  }
-
-  applyProjectPressureAction(action, playerName) {
-    const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
-    const faction = this.gameState.factions.get(playerName);
+    const cost = amount; // 1R per troop
+    faction.spendResources({ R: cost });
+    const oldPower = tile.troop_power;
+    const trainingBonus = tile.building === 'Training' ? amount : 0; // Bonus equal to amount if Training
+    const totalGain = amount + trainingBonus;
+    tile.troop_power += totalGain;
+    tile.troop_power = Math.min(tile.troop_power, 50); // Cap at 50
     
-    faction.spendResources({ R: 1 });
-    const oldStability = tile.stability;
-    tile.stability = Math.max(0, tile.stability - 1);
+    console.log(`   ⚡ Troop recruitment: +${totalGain} (${amount} base${trainingBonus > 0 ? ` + ${trainingBonus} Training bonus` : ''})`);
+    console.log(`   📈 Troops: ${oldPower.toFixed(1)}→${tile.troop_power.toFixed(1)} (cost: ${cost}R)`);
+    console.log(`   💰 ${playerName} resources after: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}, I=${faction.resources.I.toFixed(1)}`);
     
     return {
-      type: 'stability_change',
+      type: 'troop_power_change',
       tile: { x: tile.x, y: tile.y },
-      oldValue: oldStability,
-      newValue: tile.stability
+      oldValue: oldPower,
+      newValue: tile.troop_power
     };
   }
 
@@ -335,18 +304,22 @@ export class GameEngine {
     const targetTile = this.gameState.getTile(action.parameters.targetX, action.parameters.targetY);
     const faction = this.gameState.factions.get(playerName);
     
+    // DEBUG: Initial state
+    console.log(`   ⚔️  ASSAULT from (${action.parameters.fromX},${action.parameters.fromY}) → (${action.parameters.targetX},${action.parameters.targetY})`);
+    console.log(`   📍 Attacker: troops=${fromTile.troop_power.toFixed(1)}, strength=${action.parameters.strength}`);
+    console.log(`   🎯 Target: owner=${targetTile.owner}, troops=${targetTile.troop_power.toFixed(1)}, type=${targetTile.type}`);
+    
     const attackPower = fromTile.troop_power * action.parameters.strength;
     
-    let defensePower;
-    if (targetTile.owner === 'Neutral' && targetTile.troop_power === 0) {
-      defensePower = 1; // Easy capture
-    } else {
-      const baseDefense = targetTile.troop_power + targetTile.stability;
-      const hillBonus = targetTile.type === 'hill' ? 1 : 0;
-      const sacredBonus = targetTile.type === 'sacred' ? 2 : 0;
-      const fortressBonus = targetTile.building === 'Fortress' ? 4 : 0;
-      defensePower = baseDefense + hillBonus + sacredBonus + fortressBonus;
-    }
+    // Defense calculation: troops + terrain/building bonuses
+    const baseDefense = targetTile.troop_power;
+    const hillBonus = targetTile.type === 'hill' ? 2 : 0;
+    const sacredBonus = targetTile.type === 'sacred' ? 3 : 0;
+    const fortressBonus = targetTile.building === 'Fortress' ? 5 : 0;
+    const towerBonus = targetTile.building === 'Tower' ? 2 : 0;
+    const defensePower = baseDefense + hillBonus + sacredBonus + fortressBonus + towerBonus;
+    
+    console.log(`   💪 Attack power: ${attackPower.toFixed(2)} vs Defense: ${defensePower.toFixed(2)}`);
     
     const oldAttackerTroops = fromTile.troop_power;
     const oldTargetTroops = targetTile.troop_power;
@@ -358,7 +331,11 @@ export class GameEngine {
       fromTile.troop_power *= (1 - action.parameters.strength);
       targetTile.owner = playerName;
       targetTile.troop_power = Math.min(excessPower, 50);
-      targetTile.stability = 3;
+      
+      console.log(`   🎉 CONQUEST SUCCESSFUL!`);
+      console.log(`   📉 Attacker remaining: ${oldAttackerTroops.toFixed(1)}→${fromTile.troop_power.toFixed(1)} (-${(oldAttackerTroops - fromTile.troop_power).toFixed(1)})`);
+      console.log(`   🚩 Target captured: ${oldTargetOwner}→${playerName}, troops=${targetTile.troop_power.toFixed(1)}`);
+      
       return {
         type: 'conquest',
         from: { x: fromTile.x, y: fromTile.y },
@@ -370,7 +347,6 @@ export class GameEngine {
       // Defeat
       fromTile.troop_power *= (1 - action.parameters.strength * 0.75);
       targetTile.troop_power *= 0.75;
-      targetTile.stability = Math.max(0, targetTile.stability - 1);
       
       console.log(`   💥 ATTACK REPELLED!`);
       console.log(`   📉 Attacker damage: troops ${oldAttackerTroops.toFixed(1)}→${fromTile.troop_power.toFixed(1)} (-${(oldAttackerTroops - fromTile.troop_power).toFixed(1)})`);
@@ -398,7 +374,7 @@ export class GameEngine {
     
     if (success && tile.owner !== playerName) {
       tile.owner = playerName;
-      tile.stability = 5;
+      tile.troop_power = 3; // Converted tiles have minimal troops
       
       return {
         type: 'conversion_success',
@@ -471,36 +447,19 @@ export class GameEngine {
     };
   }
 
-  applyRepairAction(action, playerName) {
-    const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
-    const faction = this.gameState.factions.get(playerName);
-    
-    faction.spendResources({ R: 1 });
-    const oldStability = tile.stability;
-    tile.stability = Math.min(10, tile.stability + 2);
-    
-    return {
-      type: 'stability_change',
-      tile: { x: tile.x, y: tile.y },
-      oldValue: oldStability,
-      newValue: tile.stability
-    };
-  }
-
   applyScorchAction(action, playerName) {
     const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
     const faction = this.gameState.factions.get(playerName);
     
     faction.spendResources({ R: 2 });
-    const oldStability = tile.stability;
-    tile.stability = Math.max(0, tile.stability - 3);
-    tile.troop_power = Math.max(0, tile.troop_power - 2);
+    const oldTroops = tile.troop_power;
+    tile.troop_power = Math.max(0, tile.troop_power - 5); // Scorch removes 5 troops
     
     return {
       type: 'scorch',
       tile: { x: tile.x, y: tile.y },
-      oldStability: oldStability,
-      newStability: tile.stability
+      oldTroops: oldTroops,
+      newTroops: tile.troop_power
     };
   }
 
@@ -555,13 +514,12 @@ export class GameEngine {
         const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
         if (!tile) return { type: 'error', message: 'Invalid coordinates' };
         tile.troop_power = 0;
-        tile.stability = Math.max(0, tile.stability - 3);
         return { type: 'smite', tile: { x: action.parameters.x, y: action.parameters.y } };
         
       case 'Bless':
         const blessedTile = this.gameState.getTile(action.parameters.x, action.parameters.y);
         if (!blessedTile) return { type: 'error', message: 'Invalid coordinates' };
-        blessedTile.stability = 10;
+        blessedTile.troop_power += 5;
         if (blessedTile.owner !== 'Neutral') {
           const faction = this.gameState.factions.get(blessedTile.owner);
           if (faction) faction.addResources(0, 2, 0);
@@ -584,8 +542,7 @@ export class GameEngine {
             if (x >= 0 && x < 10 && y >= 0 && y < 10) {
               const meteorTile = this.gameState.getTile(x, y);
               if (meteorTile) {
-                meteorTile.troop_power = Math.max(0, meteorTile.troop_power - 3);
-                meteorTile.stability = Math.max(0, meteorTile.stability - 2);
+                meteorTile.troop_power = Math.max(0, meteorTile.troop_power * 0.5);
                 affected.push({ x, y });
               }
             }
