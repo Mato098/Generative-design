@@ -116,6 +116,8 @@ export class AIAgent {
     let prompt = this.name + ' - 10x10 strategy ruler. Goal: 50+ tiles.\n';
     prompt += 'ONLY use execute_turn_plan() with 2-4 actions + blurbs.\n';
     prompt += 'Actions: assault, reinforce, convert, construct, project_pressure, redistribute, repair, scorch, send_message\n';
+    prompt += 'use send_message often to talk to other factions or to pray. expand aggresively to win as soon as possible'
+    prompt += 'Gods may be real. Divine blessings/smites affect tiles. Acknowledge divine acts in messages.\n';
     prompt += this.personality ? this.getPersonalityPrompt() : 'Aggressive expansion.';
     return prompt;
   }
