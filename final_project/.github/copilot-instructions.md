@@ -75,8 +75,8 @@ getTile(x, y) {
 // Resources use floating point for precision
 faction.resources = { R: 10.0, F: 5.0, I: 3.0 };
 
-// Turn management follows strict order: Faction A → Faction B → Observer
-const turnOrder = [...factionNames, 'Observer'];
+// Turn management: Factions cycle continuously (no Observer in turn order)
+const turnOrder = [...factionNames]; // Observer removed
 ```
 
 ### Action Validation
@@ -104,12 +104,22 @@ validateAction(gameState, factionName, parameters) {
 // OpenAI conversation history is maintained per agent
 // Function schemas define available actions
 // Context includes full game state + recent observer actions
+// AbortController allows canceling ongoing AI requests
 const context = {
   gameState: this.gameState.getPublicState(),
   faction: faction,
   availableActions: ['Assault', 'Convert', ...],
   recentObserverActions: this.gameState.observerActions.slice(-3)
 };
+
+// AI requests support cancellation
+const abortController = new AbortController();
+const decisions = await aiAgent.getTurnActions(context, abortController.signal);
+
+// Personality evolution runs asynchronously but is awaited before next AI turn
+this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action);
+// ... animations play while evolution processes ...
+await this.pendingPersonalityEvolution; // Before next AI turn
 ```
 
 ## Testing Architecture
@@ -147,7 +157,7 @@ test('should process turn correctly', async () => {
 });
 ```
 
-## WebSocket Communication Patterns
+### WebSocket Communication Patterns
 
 ### Server-to-Client Messages
 ```javascript
@@ -160,14 +170,28 @@ test('should process turn correctly', async () => {
 // Key message types:
 // - 'gameState': Full state update
 // - 'actionsExecuted': Action results with animation data
-// - 'observerTurnStarted': Observer intervention phase
 // - 'gameEnded': Victory condition reached
+```
+
+### Client-to-Server Messages
+```javascript
+// Observer action (can happen anytime)
+{
+  type: 'observerAction',
+  action: { type: 'smite', parameters: { x: 5, y: 5 } }
+}
+
+// Animation complete notification
+{
+  type: 'animationComplete'
+}
 ```
 
 ### Client Animation System
 - **Animation queue**: Sequential processing of action animations
 - **Predetermined timings**: Each action type has fixed animation duration
 - **Non-blocking**: Animations don't affect game logic timing
+- **Completion notification**: Client notifies server when animations finish
 ```javascript
 const ANIMATION_TIMINGS = {
   'Assault': 1200,
@@ -175,31 +199,50 @@ const ANIMATION_TIMINGS = {
   'Meteor': 1500,
   'default': 600
 };
+
+// Notify server when queue is empty
+function notifyAnimationComplete() {
+  socket.send(JSON.stringify({ type: 'animationComplete' }));
+}
 ```
 
 ## Observer/God Mode Integration
 
 ### Divine Powers
-- **Observer actions are queued**: Not executed immediately
-- **Context sharing**: Observer actions broadcast to AI agents
-- **Power categories**: Blessing (positive), Smiting (negative), Environmental (meteors)
+- **Asynchronous intervention**: Observer can act anytime, not limited to dedicated turn
+- **AI interruption**: Can cancel ongoing AI generation with AbortController
+- **Action queueing**: Actions queue during animations, execute when animations complete
+- **Context sharing**: Observer actions broadcast to AI agents for next turn context
+- **Power categories**: Morally neutral - can favor, punish, or test factions
+- **Personality evolution**: Divine acts trigger AI personality evolution (awaited before next AI turn)
 
 ### Implementation Pattern
 ```javascript
-// Observer actions don't follow normal validation
-// They have special rules and immediate effects
-executeObserverAction(action) {
-  switch(action.type) {
-    case 'bless':
-      this.applyBlessing(action.parameters);
-      break;
-    case 'smite':
-      this.applySmite(action.parameters);
-      break;
+// Observer can interrupt or queue actions
+async executeObserverAction(action) {
+  if (this.isWaitingForAnimation) {
+    // Queue if animations playing
+    this.observerActionQueue.push(action);
+    return { success: true, queued: true };
   }
   
-  // Broadcast to AI context
+  if (this.currentAIAbortController) {
+    // Interrupt AI if thinking
+    this.currentAIAbortController.abort();
+  }
+  
+  // Execute immediately
+  const result = this.executeObserverActionImmediate(action);
   this.gameState.addObserverAction(action);
+  
+  // Start personality evolution (awaited before next AI turn)
+  this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action);
+  
+  // Restart interrupted AI turn if needed
+  if (this.isProcessingTurn) {
+    this.isProcessingTurn = false;
+    this.processNextTurn();
+  }
 }
 ```
 

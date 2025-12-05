@@ -44,12 +44,15 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(message);
       
       if (data.type === 'observerAction') {
-        console.log(`Observer used ${data.action.type}:`, JSON.stringify(data.action.parameters));
+        console.log(`⚡ Observer used ${data.action.type}:`, JSON.stringify(data.action.parameters));
         const result = await observer.executeAction(data.action);
-        broadcastToAll({
-          type: 'actionExecuted',
-          data: result
-        });
+        // Result is broadcast by executeObserverAction itself
+      }
+      
+      if (data.type === 'animationComplete') {
+        // Client finished playing animations
+        console.log('🎬 Client animations complete, continuing game');
+        gameEngine.continueAfterAnimation();
       }
       
     } catch (error) {

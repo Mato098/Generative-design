@@ -165,13 +165,13 @@ export class ActionValidator {
     // Troop redistribution between tiles
     const { fromX, fromY, toX, toY, amount } = action.parameters;
     
-    // Validate coordinates
-    if (!this.isValidCoordinate(fromX, fromY) || !this.isValidCoordinate(toX, toY)) {
-      return { valid: false, error: 'Invalid coordinates' };
-    }
-    
     const fromTile = gameState.getTile(fromX, fromY);
     const toTile = gameState.getTile(toX, toY);
+    
+    // Validate coordinates
+    if (!fromTile || !toTile) {
+      return { valid: false, error: 'Invalid coordinates' };
+    }
     
     // Check ownership
     if (fromTile.owner !== playerName || toTile.owner !== playerName) {

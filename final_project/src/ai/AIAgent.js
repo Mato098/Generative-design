@@ -13,7 +13,7 @@ export class AIAgent {
     this.conversationHistory = [];
   }
 
-  async getTurnActions(context) {
+  async getTurnActions(context, abortSignal) {
     try {
       const systemPrompt = this.buildSystemPrompt();
       const userMessage = this.buildContextMessage(context);
@@ -44,6 +44,8 @@ export class AIAgent {
         tool_choice: 'required', // Force at least one function call
         temperature: 1,
         max_completion_tokens: 4000
+      }, {
+        signal: abortSignal // Pass abort signal to OpenAI
       });
 
       const message = response.choices[0].message;
@@ -98,10 +100,22 @@ export class AIAgent {
       // Debug: Log parsed actions
       console.log(`Parsed actions for ${this.name}:`, result);
       
-      // Trim conversation history to save tokens (keep last 4 exchanges)
-      const maxHistoryLength = 8; // 4 user/assistant pairs
-      if (this.conversationHistory.length > maxHistoryLength) {
-        this.conversationHistory = this.conversationHistory.slice(-maxHistoryLength);
+      // Trim conversation history intelligently to save tokens
+      // Keep only complete user → assistant → tool sequences
+      if (this.conversationHistory.length > 12) {
+        // Find valid cutoff points (after tool messages or user messages)
+        const cutoffIndex = this.conversationHistory.length - 10;
+        
+        // Make sure we don't cut in the middle of a tool sequence
+        let safeIndex = cutoffIndex;
+        for (let i = cutoffIndex; i >= 0; i--) {
+          if (this.conversationHistory[i].role === 'user') {
+            safeIndex = i;
+            break;
+          }
+        }
+        
+        this.conversationHistory = this.conversationHistory.slice(safeIndex);
       }
       
       return result;
@@ -209,12 +223,19 @@ export class AIAgent {
       }
     }
     
-    // Count enemy tiles efficiently
+    // Count enemy tiles efficiently and show border conflicts
     const enemyInfo = [];
+    const borderConflicts = [];
     for (const [name, faction] of Object.entries(gameState.factions)) {
       if (name !== this.name) {
         const tiles = this.countTilesForFaction(gameState.grid, name);
         enemyInfo.push(`${name}:${tiles}tiles`);
+        
+        // Find where we border this enemy
+        const borders = this.findBorders(gameState.grid, this.name, name);
+        if (borders.length > 0) {
+          borderConflicts.push(`${name} borders: ${borders.slice(0, 2).map(b => `(${b.my}→${b.their})`).join(' ')}`);
+        }
       }
     }
     
@@ -227,11 +248,32 @@ export class AIAgent {
       message += '\n';
     }
     
-    message += 'Enemies: ' + enemyInfo.join(' ');
+    message += 'Enemies: ' + enemyInfo.join(' ') + '\n';
+    if (borderConflicts.length > 0) {
+      message += borderConflicts.join(' | ') + '\n';
+    }
     message += this.analyzeStrategicSituation(gameState.grid, ownedTiles);
     message += '\nUse execute_turn_plan() with any number of actions.';
     
     return message;
+  }
+
+  findBorders(grid, myName, enemyName) {
+    const borders = [];
+    for (let y = 0; y < 10; y++) {
+      for (let x = 0; x < 10; x++) {
+        if (grid[y][x].owner === myName && grid[y][x].troop_power > 0) {
+          const adjacent = this.getAdjacentTiles(grid, x, y);
+          for (const adj of adjacent) {
+            if (adj.owner === enemyName) {
+              borders.push({ my: `${x},${y}`, their: `${adj.x},${adj.y}` });
+              if (borders.length >= 3) return borders;
+            }
+          }
+        }
+      }
+    }
+    return borders;
   }
 
   countTilesForFaction(grid, factionName) {

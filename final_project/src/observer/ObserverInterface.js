@@ -4,12 +4,8 @@ export class ObserverInterface {
   }
 
   async executeAction(action) {
-    // Validate that it's the observer's turn
-    if (!this.gameEngine.gameState.isObserverTurn()) {
-      throw new Error('Not the observer\'s turn');
-    }
-
-    // Execute the observer action
+    // Observer can act anytime - no turn validation needed
+    // Execute the observer action (handles queueing/interruption internally)
     return await this.gameEngine.executeObserverAction(action);
   }
 

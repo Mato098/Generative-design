@@ -4,6 +4,9 @@ let animationQueue = [];
 let ws = null;
 let isAnimating = false;
 let animationPaused = false;
+let actionLog = []; // Recent actions
+let messageLog = []; // Agent messages
+const MAX_LOG_ENTRIES = 10;
 
 // Animation timing constants (milliseconds)
 const ANIMATION_TIMINGS = {
@@ -39,7 +42,7 @@ const GRID_OFFSET_Y = 50;
 
 // P5.js sketch
 function setup() {
-  const canvas = createCanvas(600, 600);
+  const canvas = createCanvas(1200, 600);
   canvas.parent('game-canvas');
   
   // Connect to WebSocket
@@ -51,6 +54,9 @@ function setup() {
 
 function draw() {
   background(30);
+  
+  // Clear buttons at start of frame
+  buttons = [];
   
   if (gameState) {
     drawGrid();
@@ -91,9 +97,6 @@ function drawGrid() {
       if (tile.troop_power > 0) {
         drawTroopPower(tile.troop_power, screenX, screenY);
       }
-      
-      // Stability indicator
-      drawStability(tile.stability, screenX, screenY);
       
       // Coordinates
       fill(200);
@@ -142,28 +145,174 @@ function drawTroopPower(troopPower, x, y) {
   text(troopPower.toFixed(0), x + TILE_SIZE - 2, y + TILE_SIZE - 2);
 }
 
-function drawStability(stability, x, y) {
-  // Stability bar
-  const barWidth = TILE_SIZE - 6;
-  const barHeight = 3;
-  const stabilityRatio = stability / 10;
+function drawUI() {
+  const panelX = 520;
+  const panelWidth = 680;
   
-  // Background
-  fill(50);
-  rect(x + 3, y + TILE_SIZE - 8, barWidth, barHeight);
+  // Panel background
+  fill(20, 20, 30);
+  noStroke();
+  rect(panelX, 0, panelWidth, height);
   
-  // Stability level
-  fill(255 * (1 - stabilityRatio), 255 * stabilityRatio, 0);
-  rect(x + 3, y + TILE_SIZE - 8, barWidth * stabilityRatio, barHeight);
+  let yPos = 20;
+  
+  // Title
+  fill(200, 200, 255);
+  textAlign(LEFT, TOP);
+  textSize(18);
+  text('Game Status', panelX + 10, yPos);
+  yPos += 30;
+  
+  // Turn info
+  if (gameState) {
+    fill(255);
+    textSize(14);
+    text(`Turn: ${gameState.turnNumber}`, panelX + 10, yPos);
+    yPos += 25;
+    
+    // Resources for each faction
+    fill(220, 220, 255);
+    textSize(16);
+    text('Faction Resources:', panelX + 10, yPos);
+    yPos += 25;
+    
+    for (const [name, faction] of Object.entries(gameState.factions)) {
+      const color = FACTION_COLORS[name] || [200, 200, 200];
+      fill(color[0], color[1], color[2]);
+      textSize(12);
+      const tiles = gameState.grid.flat().filter(t => t.owner === name).length;
+      text(`${name}: ${tiles} tiles`, panelX + 10, yPos);
+      
+      fill(255);
+      text(`R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)} I:${faction.resources.I.toFixed(0)}`,
+           panelX + 150, yPos);
+      yPos += 20;
+    }
+    
+    yPos += 10;
+  }
+  
+  // Animation status
+  fill(255, 255, 100);
+  textSize(12);
+  if (isAnimating && animationQueue.length > 0) {
+    text(`▶ Animating: ${animationQueue[0].action?.type || 'action'}`, panelX + 10, yPos);
+  } else if (animationPaused) {
+    text('⏸ PAUSED', panelX + 10, yPos);
+  } else {
+    text('✓ Ready', panelX + 10, yPos);
+  }
+  text(`Queue: ${animationQueue.length}`, panelX + 200, yPos);
+  yPos += 25;
+  
+  // Pause button
+  drawButton(animationPaused ? 'Resume' : 'Pause', panelX + 10, yPos, 120, 30, () => {
+    togglePause();
+  });
+  yPos += 45;
+  
+  // Recent Messages
+  fill(200, 255, 200);
+  textSize(14);
+  text('Agent Messages:', panelX + 10, yPos);
+  yPos += 20;
+  
+  fill(200);
+  textSize(10);
+  for (let i = Math.max(0, messageLog.length - 5); i < messageLog.length; i++) {
+    const msg = messageLog[i];
+    fill(150, 255, 150);
+    text(`${msg.player}:`, panelX + 10, yPos);
+    yPos += 12;
+    fill(220);
+    const wrapped = wrapText(msg.text, 60);
+    for (const line of wrapped) {
+      text(line, panelX + 20, yPos);
+      yPos += 12;
+    }
+    yPos += 5;
+  }
+  
+  yPos += 10;
+  
+  // Recent Actions
+  fill(255, 200, 200);
+  textSize(14);
+  text('Recent Actions:', panelX + 10, yPos);
+  yPos += 20;
+  
+  fill(200);
+  textSize(10);
+  for (let i = Math.max(0, actionLog.length - 8); i < actionLog.length; i++) {
+    text(actionLog[i], panelX + 10, yPos);
+    yPos += 12;
+  }
 }
 
-function drawUI() {
-  // Current action animation indicator
-  if (isAnimating && animationQueue.length > 0) {
-    fill(255, 255, 0);
-    textAlign(LEFT, TOP);
-    textSize(14);
-    text(`Animating: ${animationQueue[0].type}`, 10, height - 30);
+function wrapText(txt, maxLen) {
+  const words = txt.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    if ((current + word).length > maxLen) {
+      if (current) lines.push(current.trim());
+      current = word + ' ';
+    } else {
+      current += word + ' ';
+    }
+  }
+  if (current) lines.push(current.trim());
+  return lines;
+}
+
+let buttons = [];
+function drawButton(label, x, y, w, h, callback) {
+  // Check hover
+  const isHover = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+  
+  // Draw button
+  fill(isHover ? 80 : 50);
+  stroke(150);
+  strokeWeight(2);
+  rect(x, y, w, h, 5);
+  
+  fill(255);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(12);
+  text(label, x + w/2, y + h/2);
+  
+  // Store for click handling
+  buttons.push({ x, y, w, h, callback });
+}
+
+function mousePressed() {
+  // First check if we clicked a button
+  for (const btn of buttons) {
+    if (mouseX >= btn.x && mouseX <= btn.x + btn.w && 
+        mouseY >= btn.y && mouseY <= btn.y + btn.h) {
+      btn.callback();
+      return; // Don't process tile click if we clicked a button
+    }
+  }
+  
+  // Then check tile inspection (only if no button was clicked)
+  if (!gameState) return;
+  
+  const gridX = Math.floor((mouseX - GRID_OFFSET_X) / TILE_SIZE);
+  const gridY = Math.floor((mouseY - GRID_OFFSET_Y) / TILE_SIZE);
+  
+  if (gridX >= 0 && gridX < 10 && gridY >= 0 && gridY < 10) {
+    const tile = gameState.grid[gridY][gridX];
+    const info = `Tile (${gridX},${gridY}):
+Owner: ${tile.owner}
+Type: ${tile.type}
+Troops: ${tile.troop_power.toFixed(1)}
+Building: ${tile.building}
+Resource Value: ${tile.resource_value}`;
+    
+    // Could show this in a tooltip or info panel
+    console.log(info);
   }
 }
 
@@ -202,10 +351,24 @@ function handleServerMessage(message) {
       // Add actions to animation queue
       for (const action of message.data.actions) {
         animationQueue.push(action);
+        
+        // Log action
+        if (action.action) {
+          const params = action.action.parameters;
+          let actionText = `${message.data.player}: ${action.action.type}`;
+          if (params.x !== undefined) actionText += ` (${params.x},${params.y})`;
+          actionLog.push(actionText);
+          if (actionLog.length > MAX_LOG_ENTRIES) actionLog.shift();
+          
+          // Log messages separately
+          if (action.action.type === 'Message' && params.text) {
+            messageLog.push({ player: message.data.player, text: params.text });
+            if (messageLog.length > MAX_LOG_ENTRIES) messageLog.shift();
+          }
+        }
       }
       gameState = message.data.newGameState;
       processAnimationQueue();
-      logAction(`${message.data.player} executed ${message.data.actions.length} action(s)`);
       break;
       
     case 'observerTurnStarted':
@@ -233,7 +396,21 @@ function handleServerMessage(message) {
 
 // Animation processing
 function processAnimationQueue() {
-  if (isAnimating || animationQueue.length === 0 || animationPaused) {
+  console.log(`🎞️ processAnimationQueue: animating=${isAnimating}, queue=${animationQueue.length}, paused=${animationPaused}`);
+  
+  // If paused, don't process anything
+  if (animationPaused) {
+    console.log('⏸ Paused - queue processing halted');
+    return;
+  }
+  
+  // If already animating or queue empty, check if we should notify
+  if (isAnimating || animationQueue.length === 0) {
+    // If queue is empty and not animating and not paused, notify server
+    if (!isAnimating && animationQueue.length === 0) {
+      console.log('✅ Animation queue empty, notifying server');
+      notifyAnimationComplete();
+    }
     return;
   }
   
@@ -244,11 +421,22 @@ function processAnimationQueue() {
   animateAction(action);
   
   // Schedule next animation
-  const duration = ANIMATION_TIMINGS[action.type] || ANIMATION_TIMINGS['default'];
+  const duration = ANIMATION_TIMINGS[action.action?.type] || ANIMATION_TIMINGS['default'];
   setTimeout(() => {
     isAnimating = false;
-    processAnimationQueue(); // Process next action
+    processAnimationQueue(); // Process next action (will check pause state again)
   }, duration);
+}
+
+function notifyAnimationComplete() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log('🎬 Notifying server: animations complete');
+    ws.send(JSON.stringify({
+      type: 'animationComplete'
+    }));
+  } else {
+    console.warn('⚠️ Cannot notify animation complete: socket not ready');
+  }
 }
 
 function animateAction(action) {
@@ -378,12 +566,19 @@ function startGame() {
   });
 }
 
-function pauseAnimations() {
+function togglePause() {
   animationPaused = !animationPaused;
+  console.log(animationPaused ? '⏸ Game paused' : '▶ Game resumed');
+  
   if (!animationPaused) {
+    // Resume - process queue and notify server if animations are done
     processAnimationQueue();
+    
+    // If queue was already empty when we resumed, notify server
+    if (animationQueue.length === 0 && !isAnimating) {
+      notifyAnimationComplete();
+    }
   }
-  logAction(animationPaused ? 'Animations paused' : 'Animations resumed');
 }
 
 function executeGodPower(power) {
@@ -473,26 +668,4 @@ function fetchGameState() {
     .catch(error => {
       logAction('Failed to fetch game state');
     });
-}
-
-// Handle mouse clicks for tile inspection
-function mousePressed() {
-  if (!gameState) return;
-  
-  const gridX = Math.floor((mouseX - GRID_OFFSET_X) / TILE_SIZE);
-  const gridY = Math.floor((mouseY - GRID_OFFSET_Y) / TILE_SIZE);
-  
-  if (gridX >= 0 && gridX < 10 && gridY >= 0 && gridY < 10) {
-    const tile = gameState.grid[gridY][gridX];
-    const info = `Tile (${gridX},${gridY}):
-Owner: ${tile.owner}
-Type: ${tile.type}
-Troops: ${tile.troop_power.toFixed(1)}
-Stability: ${tile.stability.toFixed(1)}
-Building: ${tile.building}
-Resource Value: ${tile.resource_value}`;
-    
-    // Could show this in a tooltip or info panel
-    logAction(`Tile inspection: ${info.replace(/\n/g, ' | ')}`);
-  }
 }

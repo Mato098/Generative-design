@@ -11,6 +11,10 @@ export class GameEngine {
     this.broadcastFunction = null;
     this.isProcessingTurn = false;
     this.personalityEvolver = new PersonalityEvolver();
+    this.currentAIAbortController = null; // For canceling AI requests
+    this.observerActionQueue = []; // Queue for observer actions during turns/animations
+    this.isWaitingForAnimation = false;
+    this.pendingPersonalityEvolution = null; // Track ongoing personality evolution
   }
 
   setBroadcastFunction(broadcastFn) {
@@ -30,8 +34,7 @@ export class GameEngine {
       this.agents.set(config.name, agent);
     }
     
-    // Add observer as last player
-    this.gameState.addObserver();
+    // Observer is not in turn order - can act anytime
     
     // Initialize starting positions and resources
     this.initializeStartingPositions();
@@ -70,19 +73,6 @@ export class GameEngine {
     try {
       const currentPlayerName = this.gameState.getCurrentPlayerName();
       
-      // Check if it's observer turn
-      if (this.gameState.isObserverTurn()) {
-        // Wait for observer actions (human input)
-        this.broadcastToClients({
-          type: 'observerTurnStarted',
-          data: {
-            gameState: this.gameState.toJSON(),
-            turnNumber: this.gameState.turnNumber
-          }
-        });
-        return; // Observer turn is handled by human input
-      }
-      
       // Apply passive income at start of faction turn
       if (this.gameState.currentPlayerIndex === 0) {
         this.gameState.applyPassiveIncome();
@@ -97,16 +87,26 @@ export class GameEngine {
         throw new Error(`No agent found for faction: ${currentPlayerName}`);
       }
       
-      // Generate context for AI
-      const context = this.buildAIContext(currentPlayerName);
+      // Create abort controller for this AI request
+      this.currentAIAbortController = new AbortController();
       
-      // Get actions from AI
-      const executedActions = await this.processFactionTurn(currentPlayerName);
+      // Get actions from AI (can be interrupted)
+      const executedActions = await this.processFactionTurn(currentPlayerName, this.currentAIAbortController.signal);
+      
+      // Clear abort controller
+      this.currentAIAbortController = null;
+      
+      // If turn was aborted, don't continue
+      if (!executedActions) {
+        this.isProcessingTurn = false;
+        return;
+      }
       
       // End current player's turn
       currentFaction.endTurn();
       
       // Broadcast executed actions for visualization
+      this.isWaitingForAnimation = true;
       this.broadcastToClients({
         type: 'actionsExecuted',
         data: {
@@ -115,6 +115,17 @@ export class GameEngine {
           newGameState: this.gameState.toJSON()
         }
       });
+      
+      // If there are no actual actions to animate, continue immediately
+      if (executedActions.length === 0) {
+        console.log('⏭️ No actions to animate, continuing immediately');
+        this.isWaitingForAnimation = false;
+        setTimeout(() => {
+          this.isProcessingTurn = false;
+          this.processNextTurn();
+        }, 500);
+        return;
+      }
       
       // Move to next player
       this.gameState.nextPlayer();
@@ -130,19 +141,17 @@ export class GameEngine {
         return;
       }
       
-      // Continue to next turn after a brief delay
-      setTimeout(() => {
-        this.isProcessingTurn = false;
-        this.processNextTurn();
-      }, 1000);
+      // Wait for animations to complete before next turn
+      // Client will call continueAfterAnimation() when done
       
     } catch (error) {
       console.error('Error processing turn:', error);
       this.isProcessingTurn = false;
+      this.currentAIAbortController = null;
     }
   }
 
-  async processFactionTurn(factionName) {
+  async processFactionTurn(factionName, abortSignal) {
     const faction = this.gameState.factions.get(factionName);
     if (!faction || !faction.isActive) return [];
     
@@ -150,37 +159,117 @@ export class GameEngine {
     const ownedTiles = this.gameState.getOwnedTiles(factionName);
     console.log(`\n🏛️ ${factionName} T${this.gameState.turnNumber} | ${ownedTiles.length} tiles | R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)} I:${faction.resources.I.toFixed(0)}`);
     
-    const aiAgent = this.agents.get(factionName);
-    const context = this.buildAIContext(factionName);
-    const decisions = await aiAgent.getTurnActions(context);
-    
-    const executedActions = [];
-    
-    // Process all actions
-    if (decisions.actions && Array.isArray(decisions.actions)) {
-      console.log(`📋 ${decisions.actions.length} actions:`);
-      for (const action of decisions.actions) {
-        const result = await this.executeAction(action, factionName);
-        if (result.success) {
-          executedActions.push(result);
-          console.log(`✅ ${action.type}: ${action.blurb}`);
-        } else {
-          console.log(`❌ ${action.type}: ${result.error}`);
-        }
-      }
+    // Wait for any pending personality evolution to complete
+    if (this.pendingPersonalityEvolution) {
+      console.log(`⏳ Waiting for personality evolution to complete before ${factionName}'s turn...`);
+      await this.pendingPersonalityEvolution;
+      this.pendingPersonalityEvolution = null;
+      console.log(`✅ Personality evolution complete, ${factionName} proceeding with updated traits`);
     }
     
-    // Handle ruler's message
-    if (decisions.message) {
-      console.log(`💬 "${decisions.message}"`);
-      executedActions.push({
-        success: true,
-        action: { type: 'Message', parameters: { text: decisions.message } },
-        changes: { type: 'ruler_declaration', message: decisions.message }
+    const aiAgent = this.agents.get(factionName);
+    const context = this.buildAIContext(factionName);
+    
+    try {
+      const decisions = await aiAgent.getTurnActions(context, abortSignal);
+      
+      const executedActions = [];
+      
+      // Process all actions
+      if (decisions.actions && Array.isArray(decisions.actions)) {
+        console.log(`📋 ${decisions.actions.length} actions:`);
+        for (const action of decisions.actions) {
+          const result = await this.executeAction(action, factionName);
+          if (result.success) {
+            executedActions.push(result);
+            console.log(`✅ ${action.type}: ${action.blurb}`);
+          } else {
+            console.log(`❌ ${action.type}: ${result.error}`);
+          }
+        }
+      }
+      
+      // Handle ruler's message
+      if (decisions.message) {
+        console.log(`💬 "${decisions.message}"`);
+        executedActions.push({
+          success: true,
+          action: { type: 'Message', parameters: { text: decisions.message } },
+          changes: { type: 'ruler_declaration', message: decisions.message }
+        });
+      }
+      
+      return executedActions;
+    } catch (error) {
+      // If aborted, return null to signal interruption
+      if (error.name === 'AbortError') {
+        console.log(`⚡ ${factionName}'s turn interrupted by divine intervention`);
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  // Called when client finishes animating actions
+  continueAfterAnimation() {
+    this.isWaitingForAnimation = false;
+    
+    // Process any queued observer actions first
+    if (this.observerActionQueue.length > 0) {
+      const queuedActions = [...this.observerActionQueue];
+      this.observerActionQueue = [];
+      
+      console.log(`⚡ Processing ${queuedActions.length} queued divine actions`);
+      
+      for (const action of queuedActions) {
+        this.executeObserverActionImmediate(action);
+      }
+      
+      // Broadcast queued actions
+      this.broadcastToClients({
+        type: 'actionsExecuted',
+        data: {
+          player: 'Observer',
+          actions: queuedActions.map(a => ({
+            success: true,
+            action: a,
+            changes: { type: a.type }
+          })),
+          newGameState: this.gameState.toJSON()
+        }
       });
     }
     
-    return executedActions;
+    // Continue game loop after brief delay
+    setTimeout(() => {
+      this.isProcessingTurn = false;
+      this.processNextTurn();
+    }, 500);
+  }
+
+  // Process queued observer actions between turns
+  processObserverQueue() {
+    if (this.observerActionQueue.length === 0) return;
+    
+    const queuedActions = [...this.observerActionQueue];
+    this.observerActionQueue = [];
+    
+    console.log(`⚡ Processing ${queuedActions.length} queued divine actions`);
+    
+    const executedActions = [];
+    for (const action of queuedActions) {
+      const result = this.executeObserverActionImmediate(action);
+      executedActions.push(result);
+    }
+    
+    this.broadcastToClients({
+      type: 'actionsExecuted',
+      data: {
+        player: 'Observer',
+        actions: executedActions,
+        newGameState: this.gameState.toJSON()
+      }
+    });
   }
 
   buildAIContext(currentPlayerName) {
@@ -481,21 +570,59 @@ export class GameEngine {
 
   // Observer methods
   async executeObserverAction(action) {
-    // Observer actions are executed immediately and added to next turn context
+    console.log(`⚡ Divine intervention: ${action.type} at (${action.parameters.x || 'N/A'},${action.parameters.y || 'N/A'})`);
+    
+    // Check current game state
+    if (this.isWaitingForAnimation) {
+      // Queue action if animations are playing
+      console.log(`📦 Queuing divine action (animations in progress)`);
+      this.observerActionQueue.push(action);
+      return { success: true, queued: true };
+    }
+    
+    if (this.currentAIAbortController) {
+      // Interrupt AI if it's thinking
+      console.log(`🛑 Interrupting AI generation for divine intervention`);
+      this.currentAIAbortController.abort();
+      this.currentAIAbortController = null;
+    }
+    
+    // Execute action immediately
+    const result = this.executeObserverActionImmediate(action);
+    
+    // Add to context for AI agents
     this.gameState.addObserverAction(action);
     
-    // Apply observer action to game state
+    // Start personality evolution in background (will be awaited before next AI turn)
+    console.log(`🧠 Starting personality evolution in background...`);
+    this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
+      console.error('Error evolving personalities:', err);
+      this.pendingPersonalityEvolution = null;
+    });
+    
+    // Broadcast to clients
+    this.broadcastToClients({
+      type: 'actionsExecuted',
+      data: {
+        player: 'Observer',
+        actions: [result],
+        newGameState: this.gameState.toJSON()
+      }
+    });
+    
+    // If AI was interrupted, restart its turn
+    if (this.isProcessingTurn) {
+      console.log(`🔄 Restarting interrupted AI turn with new context`);
+      this.isProcessingTurn = false;
+      this.processNextTurn();
+    }
+    
+    return result;
+  }
+
+  executeObserverActionImmediate(action) {
+    // Actually apply the observer action to game state
     const changes = this.applyObserverAction(action);
-    
-    // Evolve AI personalities based on divine intervention
-    await this.evolvePersonalitiesAfterDivineEvent(action);
-    
-    // Move to next turn (back to factions)
-    this.gameState.nextPlayer();
-    
-    // Continue game
-    this.isProcessingTurn = false;
-    this.processNextTurn();
     
     return {
       success: true,

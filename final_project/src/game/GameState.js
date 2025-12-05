@@ -32,9 +32,7 @@ export class GameState {
     return faction;
   }
 
-  addObserver() {
-    this.playerOrder.push('Observer');
-  }
+  // Observer is no longer in turn order - can act anytime
 
   getTile(x, y) {
     if (x < 0 || x >= 10 || y < 0 || y >= 10) {
@@ -60,15 +58,11 @@ export class GameState {
   getCurrentPlayer() {
     if (this.playerOrder.length === 0) return null;
     const currentPlayerName = this.playerOrder[this.currentPlayerIndex];
-    return currentPlayerName === 'Observer' ? 'Observer' : this.factions.get(currentPlayerName);
+    return this.factions.get(currentPlayerName);
   }
 
   getCurrentPlayerName() {
     return this.playerOrder[this.currentPlayerIndex];
-  }
-
-  isObserverTurn() {
-    return this.getCurrentPlayerName() === 'Observer';
   }
 
   nextPlayer() {
