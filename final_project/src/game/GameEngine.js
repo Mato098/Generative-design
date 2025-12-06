@@ -12,9 +12,10 @@ export class GameEngine {
     this.isProcessingTurn = false;
     this.personalityEvolver = new PersonalityEvolver();
     this.currentAIAbortController = null; // For canceling AI requests
-    this.observerActionQueue = []; // Queue for observer actions during turns/animations
     this.isWaitingForAnimation = false;
     this.pendingPersonalityEvolution = null; // Track ongoing personality evolution
+    this.needsRestartAfterObserver = false; // Flag to restart turn after observer action
+    this.isPaused = false; // Game pause state
   }
 
   setBroadcastFunction(broadcastFn) {
@@ -67,7 +68,7 @@ export class GameEngine {
   }
 
   async processNextTurn() {
-    if (this.isProcessingTurn) return;
+    if (this.isProcessingTurn || this.isPaused) return;
     this.isProcessingTurn = true;
     
     try {
@@ -157,7 +158,7 @@ export class GameEngine {
     
     // Faction turn start
     const ownedTiles = this.gameState.getOwnedTiles(factionName);
-    console.log(`\n🏛️ ${factionName} T${this.gameState.turnNumber} | ${ownedTiles.length} tiles | R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)} I:${faction.resources.I.toFixed(0)}`);
+    console.log(`\n🏛️ ${factionName} T${this.gameState.turnNumber} | ${ownedTiles.length} tiles | R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)}`);
     
     // Wait for any pending personality evolution to complete
     if (this.pendingPersonalityEvolution) {
@@ -202,74 +203,33 @@ export class GameEngine {
       return executedActions;
     } catch (error) {
       // If aborted, return null to signal interruption
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || error.name === 'APIUserAbortError') {
         console.log(`⚡ ${factionName}'s turn interrupted by divine intervention`);
         return null;
       }
-      throw error;
+      console.error(`AI Agent ${factionName} error:`, error);
+      // Return empty actions on other errors to continue game
+      return [];
     }
   }
 
   // Called when client finishes animating actions
-  continueAfterAnimation() {
+  async continueAfterAnimation() {
     this.isWaitingForAnimation = false;
     
-    // Process any queued observer actions first
-    if (this.observerActionQueue.length > 0) {
-      const queuedActions = [...this.observerActionQueue];
-      this.observerActionQueue = [];
-      
-      console.log(`⚡ Processing ${queuedActions.length} queued divine actions`);
-      
-      for (const action of queuedActions) {
-        this.executeObserverActionImmediate(action);
-      }
-      
-      // Broadcast queued actions
-      this.broadcastToClients({
-        type: 'actionsExecuted',
-        data: {
-          player: 'Observer',
-          actions: queuedActions.map(a => ({
-            success: true,
-            action: a,
-            changes: { type: a.type }
-          })),
-          newGameState: this.gameState.toJSON()
-        }
-      });
-    }
-    
-    // Continue game loop after brief delay
+    // Continue game loop after brief delay (personality evolution may still be running)
     setTimeout(() => {
-      this.isProcessingTurn = false;
-      this.processNextTurn();
-    }, 500);
-  }
-
-  // Process queued observer actions between turns
-  processObserverQueue() {
-    if (this.observerActionQueue.length === 0) return;
-    
-    const queuedActions = [...this.observerActionQueue];
-    this.observerActionQueue = [];
-    
-    console.log(`⚡ Processing ${queuedActions.length} queued divine actions`);
-    
-    const executedActions = [];
-    for (const action of queuedActions) {
-      const result = this.executeObserverActionImmediate(action);
-      executedActions.push(result);
-    }
-    
-    this.broadcastToClients({
-      type: 'actionsExecuted',
-      data: {
-        player: 'Observer',
-        actions: executedActions,
-        newGameState: this.gameState.toJSON()
+      // Check if we need to restart a turn that was interrupted by observer action
+      if (this.needsRestartAfterObserver) {
+        console.log(`🔄 Restarting interrupted turn after observer intervention`);
+        this.needsRestartAfterObserver = false;
+        this.isProcessingTurn = false;
+        this.processNextTurn();
+      } else {
+        this.isProcessingTurn = false;
+        this.processNextTurn();
       }
-    });
+    }, 500);
   }
 
   buildAIContext(currentPlayerName) {
@@ -282,14 +242,6 @@ export class GameEngine {
       ownedTiles: this.gameState.getOwnedTiles(currentPlayerName),
       turnNumber: this.gameState.turnNumber,
       observerActionsLastTurn: this.gameState.getObserverActionsForTurn()
-    };
-  }
-
-  getAvailableActions() {
-    // All actions are always available - no limitations
-    return {
-      actions: ['Reinforce', 'Assault', 'Convert', 'Construct', 'Redistribute', 'Scorch'],
-      messaging: ['send_message']
     };
   }
 
@@ -350,8 +302,8 @@ export class GameEngine {
         return this.applyConstructAction(action, playerName);
       case 'Redistribute':
         return this.applyRedistributeAction(action, playerName);
-      case 'Scorch':
-        return this.applyScorchAction(action, playerName);
+      case 'Sanctuary':
+        return this.applySanctuaryAction(action, playerName);
       default:
         throw new Error(`Unknown action type: ${action.type}`);
     }
@@ -365,8 +317,8 @@ export class GameEngine {
     
     // DEBUG: Before state
     console.log(`   🛡️ RECRUIT (${action.parameters.x},${action.parameters.y}) amount: ${amount}`);
-    console.log(`   📍 Tile state: troops=${tile.troop_power.toFixed(1)}, owner=${tile.owner}, building=${tile.building || 'none'}`);
-    console.log(`   💰 ${playerName} resources: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}, I=${faction.resources.I.toFixed(1)}`);
+    console.log(`    Tile state: troops=${tile.troop_power.toFixed(1)}, owner=${tile.owner}, building=${tile.building || 'none'}`);
+    console.log(`    ${playerName} resources: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}`);
     
     const cost = amount; // 1R per troop
     faction.spendResources({ R: cost });
@@ -376,9 +328,9 @@ export class GameEngine {
     tile.troop_power += totalGain;
     tile.troop_power = Math.min(tile.troop_power, 50); // Cap at 50
     
-    console.log(`   ⚡ Troop recruitment: +${totalGain} (${amount} base${trainingBonus > 0 ? ` + ${trainingBonus} Training bonus` : ''})`);
-    console.log(`   📈 Troops: ${oldPower.toFixed(1)}→${tile.troop_power.toFixed(1)} (cost: ${cost}R)`);
-    console.log(`   💰 ${playerName} resources after: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}, I=${faction.resources.I.toFixed(1)}`);
+    console.log(`    Troop recruitment: +${totalGain} (${amount} base${trainingBonus > 0 ? ` + ${trainingBonus} Training bonus` : ''})`);
+    console.log(`    Troops: ${oldPower.toFixed(1)}→${tile.troop_power.toFixed(1)} (cost: ${cost}R)`);
+    console.log(`    ${playerName} resources after: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}`);
     
     return {
       type: 'troop_power_change',
@@ -395,10 +347,16 @@ export class GameEngine {
     
     // DEBUG: Initial state
     console.log(`   ⚔️  ASSAULT from (${action.parameters.fromX},${action.parameters.fromY}) → (${action.parameters.targetX},${action.parameters.targetY})`);
-    console.log(`   📍 Attacker: troops=${fromTile.troop_power.toFixed(1)}, strength=${action.parameters.strength}`);
-    console.log(`   🎯 Target: owner=${targetTile.owner}, troops=${targetTile.troop_power.toFixed(1)}, type=${targetTile.type}`);
     
-    const attackPower = fromTile.troop_power * action.parameters.strength;
+    // Clamp troops to available amount
+    const requestedTroops = Math.max(0.1, action.parameters.troops);
+    const actualTroops = Math.min(requestedTroops, fromTile.troop_power);
+    const strengthRatio = actualTroops / fromTile.troop_power;
+    
+    console.log(`    Attacker: total=${fromTile.troop_power.toFixed(1)}, sending=${actualTroops.toFixed(1)} troops`);
+    console.log(`    Target: owner=${targetTile.owner}, troops=${targetTile.troop_power.toFixed(1)}, type=${targetTile.type}`);
+    
+    const attackPower = actualTroops;
     
     // Defense calculation: troops + terrain/building bonuses
     const baseDefense = targetTile.troop_power;
@@ -410,20 +368,28 @@ export class GameEngine {
     
     console.log(`   💪 Attack power: ${attackPower.toFixed(2)} vs Defense: ${defensePower.toFixed(2)}`);
     
+    // Add combat randomness - roll dice for both sides
+    const attackRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
+    const defenseRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
+    
+    const finalAttackPower = attackPower * attackRoll;
+    const finalDefensePower = defensePower * defenseRoll;
+    
+    console.log(`   🎲 Combat rolls: Attack ${attackRoll.toFixed(2)} Defense ${defenseRoll.toFixed(2)}`);
+    console.log(`   ⚡ Final: ${finalAttackPower.toFixed(2)} vs ${finalDefensePower.toFixed(2)}`);
+    
     const oldAttackerTroops = fromTile.troop_power;
     const oldTargetTroops = targetTile.troop_power;
     const oldTargetOwner = targetTile.owner;
     
-    if (attackPower > defensePower) {
+    if (finalAttackPower > finalDefensePower) {
       // Victory
-      const excessPower = attackPower - defensePower;
-      fromTile.troop_power *= (1 - action.parameters.strength);
+      const excessPower = finalAttackPower - finalDefensePower;
+      fromTile.troop_power *= (1 - strengthRatio);
       targetTile.owner = playerName;
       targetTile.troop_power = Math.min(excessPower, 50);
       
-      console.log(`   🎉 CONQUEST SUCCESSFUL!`);
-      console.log(`   📉 Attacker remaining: ${oldAttackerTroops.toFixed(1)}→${fromTile.troop_power.toFixed(1)} (-${(oldAttackerTroops - fromTile.troop_power).toFixed(1)})`);
-      console.log(`   🚩 Target captured: ${oldTargetOwner}→${playerName}, troops=${targetTile.troop_power.toFixed(1)}`);
+      console.log(`   🎉 ATTACK SUCCESSFUL!`);
       
       return {
         type: 'conquest',
@@ -434,13 +400,11 @@ export class GameEngine {
       };
     } else {
       // Defeat
-      fromTile.troop_power *= (1 - action.parameters.strength * 0.75);
+      fromTile.troop_power *= (1 - strengthRatio * 0.75);
       targetTile.troop_power *= 0.75;
       
       console.log(`   💥 ATTACK REPELLED!`);
-      console.log(`   📉 Attacker damage: troops ${oldAttackerTroops.toFixed(1)}→${fromTile.troop_power.toFixed(1)} (-${(oldAttackerTroops - fromTile.troop_power).toFixed(1)})`);
-      console.log(`   📉 Target damage: troops ${oldTargetTroops.toFixed(1)}→${targetTile.troop_power.toFixed(1)} (-${(oldTargetTroops - targetTile.troop_power).toFixed(1)})`);
-      
+
       return {
         type: 'assault_failed',
         from: { x: fromTile.x, y: fromTile.y },
@@ -454,11 +418,11 @@ export class GameEngine {
     const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
     const faction = this.gameState.factions.get(playerName);
     
-    const faithCost = 2;
-    const influenceCost = 1;
-    faction.spendResources({ F: faithCost, I: influenceCost });
+    const faithCost = 3; // Increased since no Influence cost
+    faction.spendResources({ F: faithCost });
     
-    const conversionChance = Math.min(0.8, faction.resources.I * 0.1);
+    // Faith-based conversion is more reliable
+    const conversionChance = Math.min(0.9, 0.6 + (faction.resources.F * 0.05));
     const success = Math.random() < conversionChance;
     
     if (success && tile.owner !== playerName) {
@@ -513,9 +477,6 @@ export class GameEngine {
     
     // DEBUG: Before state
     console.log(`   🚛 REDISTRIBUTE from (${action.parameters.fromX},${action.parameters.fromY}) to (${action.parameters.toX},${action.parameters.toY})`);
-    console.log(`   📦 Source tile: troops=${fromTile.troop_power.toFixed(1)}, owner=${fromTile.owner}`);
-    console.log(`   📍 Target tile: troops=${toTile.troop_power.toFixed(1)}, owner=${toTile.owner}`);
-    console.log(`   🎯 Requested transfer: ${action.parameters.amount} troops`);
     
     const transferAmount = Math.min(action.parameters.amount, fromTile.troop_power);
     const oldFromTroops = fromTile.troop_power;
@@ -525,8 +486,6 @@ export class GameEngine {
     toTile.troop_power += transferAmount;
     
     console.log(`   ✅ Transferred ${transferAmount.toFixed(1)} troops`);
-    console.log(`   📉 Source: ${oldFromTroops.toFixed(1)}→${fromTile.troop_power.toFixed(1)} (-${transferAmount.toFixed(1)})`);
-    console.log(`   📈 Target: ${oldToTroops.toFixed(1)}→${toTile.troop_power.toFixed(1)} (+${transferAmount.toFixed(1)})`);
     
     return {
       type: 'troop_redistribution',
@@ -536,19 +495,25 @@ export class GameEngine {
     };
   }
 
-  applyScorchAction(action, playerName) {
+  applySanctuaryAction(action, playerName) {
     const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
     const faction = this.gameState.factions.get(playerName);
     
-    faction.spendResources({ R: 2 });
-    const oldTroops = tile.troop_power;
-    tile.troop_power = Math.max(0, tile.troop_power - 5); // Scorch removes 5 troops
+    console.log(`   ⛪ SANCTUARY at (${action.parameters.x},${action.parameters.y})`);
+    
+    const faithCost = 4;
+    faction.spendResources({ F: faithCost });
+    
+    // Make tile immune to assault for 3 turns
+    if (!tile.effects) tile.effects = {};
+    tile.effects.sanctuary = this.gameState.turnNumber + 2;
+    
+    console.log(`   ✅ Tile protected from assault until turn ${tile.effects.sanctuary}`);
     
     return {
-      type: 'scorch',
+      type: 'sanctuary',
       tile: { x: tile.x, y: tile.y },
-      oldTroops: oldTroops,
-      newTroops: tile.troop_power
+      protectedUntil: tile.effects.sanctuary
     };
   }
 
@@ -572,35 +537,17 @@ export class GameEngine {
   async executeObserverAction(action) {
     console.log(`⚡ Divine intervention: ${action.type} at (${action.parameters.x || 'N/A'},${action.parameters.y || 'N/A'})`);
     
-    // Check current game state
-    if (this.isWaitingForAnimation) {
-      // Queue action if animations are playing
-      console.log(`📦 Queuing divine action (animations in progress)`);
-      this.observerActionQueue.push(action);
-      return { success: true, queued: true };
-    }
-    
+    // Interrupt AI if it's thinking
     if (this.currentAIAbortController) {
-      // Interrupt AI if it's thinking
       console.log(`🛑 Interrupting AI generation for divine intervention`);
       this.currentAIAbortController.abort();
       this.currentAIAbortController = null;
     }
     
-    // Execute action immediately
-    const result = this.executeObserverActionImmediate(action);
+    // Execute the action immediately and start personality evolution
+    const result = await this.processObserverActionWithEvolution(action);
     
-    // Add to context for AI agents
-    this.gameState.addObserverAction(action);
-    
-    // Start personality evolution in background (will be awaited before next AI turn)
-    console.log(`🧠 Starting personality evolution in background...`);
-    this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
-      console.error('Error evolving personalities:', err);
-      this.pendingPersonalityEvolution = null;
-    });
-    
-    // Broadcast to clients
+    // Broadcast to clients (this adds to animation queue)
     this.broadcastToClients({
       type: 'actionsExecuted',
       data: {
@@ -610,25 +557,36 @@ export class GameEngine {
       }
     });
     
-    // If AI was interrupted, restart its turn
+    // If AI was interrupted, mark that we need to restart after animations complete
     if (this.isProcessingTurn) {
-      console.log(`🔄 Restarting interrupted AI turn with new context`);
-      this.isProcessingTurn = false;
-      this.processNextTurn();
+      console.log(`🔄 Marking turn for restart after divine intervention`);
+      this.needsRestartAfterObserver = true;
+      // Don't restart immediately - let the aborted AI request complete and animations finish
     }
     
     return result;
   }
 
-  executeObserverActionImmediate(action) {
-    // Actually apply the observer action to game state
+  // Shared method to process observer actions with personality evolution
+  async processObserverActionWithEvolution(action) {
+    // Execute the action
     const changes = this.applyObserverAction(action);
-    
-    return {
+    const result = {
       success: true,
       action: action,
       changes: changes
     };
+    
+    // Add to context for AI agents
+    this.gameState.addObserverAction(action);
+    
+    // Store the evolution promise so AI turns can wait for it
+    this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
+      console.error('❌ Error evolving personalities:', err);
+      this.pendingPersonalityEvolution = null;
+    });
+    
+    return result;
   }
 
   applyObserverAction(action) {
@@ -677,7 +635,38 @@ export class GameEngine {
         }
         return { type: 'meteor', center: { x: centerX, y: centerY }, affected };
         
-      // ... other observer actions
+      case 'Sanctify':
+        const sanctifyTile = this.gameState.getTile(action.parameters.x, action.parameters.y);
+        if (!sanctifyTile) return { type: 'error', message: 'Invalid coordinates' };
+        sanctifyTile.type = 'sacred'; // Convert to sacred terrain
+        sanctifyTile.building = 'Shrine'; // Add shrine building
+        sanctifyTile.troop_power += 3; // Divine empowerment
+        if (sanctifyTile.owner !== 'Neutral') {
+          const faction = this.gameState.factions.get(sanctifyTile.owner);
+          if (faction) faction.addResources(0, 3); // +3 Faith
+        }
+        return { type: 'sanctify', tile: { x: action.parameters.x, y: action.parameters.y } };
+        
+      case 'Rend':
+        const rendTile = this.gameState.getTile(action.parameters.x, action.parameters.y);
+        if (!rendTile) return { type: 'error', message: 'Invalid coordinates' };
+        rendTile.building = 'none'; // Destroy any building
+        rendTile.troop_power = Math.max(0, rendTile.troop_power - 7); // Heavy damage
+        return { type: 'rend', tile: { x: action.parameters.x, y: action.parameters.y } };
+        
+      case 'Pause':
+        this.isPaused = true;
+        console.log('⏸ Game paused by observer');
+        return { type: 'pause', message: 'Game paused' };
+        
+      case 'Resume':
+        this.isPaused = false;
+        console.log('▶ Game resumed by observer');
+        // Restart current turn processing
+        if (!this.isProcessingTurn) {
+          this.processNextTurn();
+        }
+        return { type: 'resume', message: 'Game resumed' };
       
       default:
         throw new Error(`Unknown observer action: ${action.type}`);
@@ -703,9 +692,10 @@ export class GameEngine {
         }
       }
 
+      
       // Skip evolution if no personalities to evolve
       if (Object.keys(currentPersonalities).length === 0) {
-        console.log('🧠 No personalities to evolve');
+        console.log('🧠 No personalities to evolve - no agents have personalityData');
         return;
       }
 

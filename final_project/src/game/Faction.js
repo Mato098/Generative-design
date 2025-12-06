@@ -4,16 +4,14 @@ export class Faction {
     this.personality = personality; // AI personality traits
     this.resources = {
       R: 15, // Resources (float) - increased for easier expansion
-      F: 8,  // Faith (float) - increased for conversion options
-      I: 5   // Influence (float) - increased for better conversion chances
+      F: 8   // Faith (float) - increased for conversion options
     };
     this.isActive = false;
   }
 
-  addResources(R = 0, F = 0, I = 0) {
+  addResources(R = 0, F = 0) {
     this.resources.R += R;
     this.resources.F += F;
-    this.resources.I += I;
   }
 
   canAfford(cost) {

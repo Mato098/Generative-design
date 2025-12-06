@@ -14,8 +14,8 @@ export class ActionValidator {
         return this.validateConstruct(action, gameState, playerName);
       case 'Redistribute':
         return this.validateRedistribute(action, gameState, playerName);
-      case 'Scorch':
-        return this.validateScorch(action, gameState, playerName);
+      case 'Sanctuary':
+        return this.validateSanctuary(action, gameState, playerName);
       default:
         return { valid: false, error: `Unknown action type: ${action.type}` };
     }
@@ -71,15 +71,15 @@ export class ActionValidator {
     if (!this.areAdjacent(fromX, fromY, targetX, targetY)) {
       return { valid: false, error: 'Tiles must be adjacent' };
     }
-    
-    if (!faction.canAfford({ R: 1 })) {
-      return { valid: false, error: 'Insufficient resources (need 1 R)' };
+
+    if (targetTile.effects && targetTile.effects.sanctuary && targetTile.effects.sanctuary > gameState.turnNumber) {
+      return { valid: false, error: 'Target tile is protected by sanctuary' };
     }
     
     if (fromTile.troop_power <= 0) {
       return { valid: false, error: 'No troops available for assault' };
     }
-    
+
     return { valid: true };
   }
 
@@ -115,9 +115,9 @@ export class ActionValidator {
       return { valid: false, error: 'Must have adjacent tile to convert from' };
     }
     
-    // Use Faith by default for conversion (2F + 1I cost)
-    if (!faction.canAfford({ F: 2, I: 1 })) {
-      return { valid: false, error: 'Insufficient resources (need 2F + 1I)' };
+    // Use Faith for conversion (3F cost, increased since no Influence)
+    if (!faction.canAfford({ F: 3 })) {
+      return { valid: false, error: 'Insufficient resources (need 3F)' };
     }
     
     return { valid: true };
@@ -190,7 +190,7 @@ export class ActionValidator {
     return { valid: true };
   }
 
-  validateScorch(action, gameState, playerName) {
+  validateSanctuary(action, gameState, playerName) {
     const { x, y } = action.parameters;
     const tile = gameState.getTile(x, y);
     const faction = gameState.factions.get(playerName);
@@ -199,28 +199,17 @@ export class ActionValidator {
       return { valid: false, error: 'Invalid tile coordinates' };
     }
     
-    if (tile.owner === playerName) {
-      return { valid: false, error: 'Cannot scorch own tiles' };
+    if (tile.owner !== playerName) {
+      return { valid: false, error: 'Can only protect owned tiles' };
     }
     
-    if (tile.owner === 'Neutral') {
-      return { valid: false, error: 'Cannot scorch neutral tiles' };
+    if (!faction.canAfford({ F: 4 })) {
+      return { valid: false, error: 'Insufficient Faith (need 4 F)' };
     }
     
-    if (!faction.canAfford({ R: 2 })) {
-      return { valid: false, error: 'Insufficient resources (need 2 R)' };
-    }
-    
-    if (tile.troop_power <= 0) {
-      return { valid: false, error: 'No troops to scorch' };
-    }
-    
-    // Check if tile is adjacent to any owned tile
-    const adjacent = gameState.getAdjacentTiles(x, y);
-    const hasAdjacentOwned = adjacent.some(t => t.owner === playerName);
-    
-    if (!hasAdjacentOwned) {
-      return { valid: false, error: 'Must target adjacent enemy tile' };
+    // Check if tile already has sanctuary
+    if (tile.effects && tile.effects.sanctuary && tile.effects.sanctuary > gameState.turnNumber) {
+      return { valid: false, error: 'Tile already protected' };
     }
     
     return { valid: true };

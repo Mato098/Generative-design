@@ -22,7 +22,7 @@ A turn-based strategy game where multiple AI agents (powered by OpenAI's ChatGPT
 Each faction tracks:
 - **R (Resources)**: Used for most actions, gained from tiles (1 + resource_value per turn)
 - **F (Faith)**: Used for conversion, gained from Shrines and sacred tiles  
-- **I (Influence)**: Used for conversion and affects success rates
+- **F (Faith)**: Used for conversion and special abilities
 
 ### Turn Structure
 1. **Faction A** → **Faction B** → **Observer** → repeat
@@ -31,7 +31,7 @@ Each faction tracks:
 
 ### Actions
 **Primary Actions:** Reinforce, ProjectPressure, Assault, Convert, Construct
-**Secondary Actions:** Redistribute, Repair, Scorch, Message
+**Secondary Actions:** Redistribute, Repair, Sanctuary, Message
 **Observer Powers:** Smite, Bless, Sanctify, Rend, Meteor, Observe
 
 ### Victory Conditions
@@ -86,7 +86,7 @@ const agentConfig = [
 2. **Available Personalities**:
    - `aggressive`: Military expansionist, prioritizes assault actions
    - `defensive`: Fortress builder, focuses on stability and defense
-   - `diplomatic`: Uses conversion and influence tactics
+   - `diplomatic`: Uses conversion and negotiation tactics
    - `economic`: Resource-focused, builds markets and infrastructure
    - `religious`: Faith-based strategy, seeks sacred sites
    - `chaotic`: Unpredictable and opportunistic

@@ -1,143 +1,26 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>LLM Strategy Game</title>
-  <meta charset="utf-8">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Strategy Game - Clean UI</title>
   <style>
-    body { 
-      margin: 0; 
-      padding: 20px; 
-      font-family: Arial, sans-serif; 
-      background: #1a1a1a;
-      color: white;
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #000;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
     }
-    .container {
-      display: flex;
-      gap: 20px;
-    }
-    .game-view {
-      flex: 1;
-    }
-    .controls {
-      width: 300px;
-      background: #2a2a2a;
-      padding: 20px;
-      border-radius: 8px;
-    }
-    .status {
-      margin-bottom: 20px;
-      padding: 10px;
-      background: #333;
-      border-radius: 4px;
-    }
-    .observer-controls {
-      margin-top: 20px;
-    }
-    button {
-      background: #4CAF50;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      margin: 4px;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #45a049;
-    }
-    button:disabled {
-      background: #666;
-      cursor: not-allowed;
-    }
-    .god-power {
-      background: #9C27B0;
-    }
-    .god-power:hover {
-      background: #7B1FA2;
-    }
-    .action-log {
-      height: 200px;
-      overflow-y: auto;
-      background: #1a1a1a;
-      padding: 10px;
-      border-radius: 4px;
-      font-size: 12px;
-    }
-    .faction-status {
-      margin: 10px 0;
-      padding: 8px;
-      background: #333;
-      border-radius: 4px;
-      border-left: 4px solid;
-    }
-    input, select {
-      width: 100%;
-      padding: 4px;
-      margin: 2px 0;
-      background: #444;
-      border: 1px solid #666;
-      color: white;
-      border-radius: 2px;
+    
+    canvas {
+      display: block;
+      margin: 0 auto;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="game-view">
-      <div id="game-canvas"></div>
-    </div>
-    <div class="controls">
-      <div class="status">
-        <h3>Game Status</h3>
-        <div id="turn-info">Turn: 1</div>
-        <div id="current-player">Current: Setting up...</div>
-        <div id="game-status">Status: Setup</div>
-      </div>
-
-      <div class="faction-status" id="faction-display">
-        <h3>Factions</h3>
-      </div>
-
-      <div class="observer-controls">
-        <h3>Observer Powers</h3>
-        <div id="observer-turn-indicator" style="display: none;">
-          <strong>Your Divine Turn!</strong>
-        </div>
-        
-        <button onclick="startGame()">Start Game</button>
-        <button onclick="pauseAnimations()">Pause/Resume</button>
-        
-        <h4>God Powers</h4>
-        <div>
-          <input type="number" id="god-x" placeholder="X (0-9)" min="0" max="9">
-          <input type="number" id="god-y" placeholder="Y (0-9)" min="0" max="9">
-          <input type="text" id="god-reason" placeholder="Divine reason...">
-        </div>
-        <button class="god-power" onclick="executeGodPower('smite')">Smite</button>
-        <button class="god-power" onclick="executeGodPower('bless')">Bless</button>
-        <button class="god-power" onclick="executeGodPower('sanctify')">Sanctify</button>
-        <button class="god-power" onclick="executeGodPower('rend')">Rend</button>
-        
-        <div>
-          <input type="number" id="meteor-x" placeholder="Meteor X (1-8)" min="1" max="8">
-          <input type="number" id="meteor-y" placeholder="Meteor Y (1-8)" min="1" max="8">
-          <button class="god-power" onclick="executeMeteor()">Meteor</button>
-        </div>
-        
-        <div>
-          <input type="text" id="observe-comment" placeholder="Divine commentary...">
-          <button class="god-power" onclick="executeObserve()">Just Observe</button>
-        </div>
-      </div>
-
-      <div class="action-log">
-        <h4>Action Log</h4>
-        <div id="log-content"></div>
-      </div>
-    </div>
-  </div>
-
-  <script src="gameClient.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+  <script src="gameClient_v2.js"></script>
 </body>
 </html>

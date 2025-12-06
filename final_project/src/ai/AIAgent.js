@@ -16,15 +16,8 @@ export class AIAgent {
   async getTurnActions(context, abortSignal) {
     try {
       const systemPrompt = this.buildSystemPrompt();
+      console.log('systemPrompt:', systemPrompt);
       const userMessage = this.buildContextMessage(context);
-      
-      // DEBUG: Log prompt lengths to investigate token usage
-      console.log(`\n📝 ${this.name} PROMPT DEBUG:`);
-      console.log(`System prompt length: ${systemPrompt.length} chars`);
-      console.log(`User message length: ${userMessage.length} chars`);
-      console.log(`Conversation history length: ${this.conversationHistory.length} messages`);
-      console.log(`Total history chars: ${JSON.stringify(this.conversationHistory).length} chars`);
-      console.log(`📝 END PROMPT DEBUG\n`);
       
       // Add to conversation history
       this.conversationHistory.push({
@@ -57,20 +50,7 @@ export class AIAgent {
       // Log token usage
       const tokenUsage = response.usage;
       console.log(`${this.name} tokens: ${tokenUsage.prompt_tokens} prompt + ${tokenUsage.completion_tokens} completion = ${tokenUsage.total_tokens} total`);
-      
-      // DEBUG: Show full response content to investigate high token usage
-      console.log(`\n📊 FULL ${this.name} RESPONSE DEBUG:`);
-      console.log(`Content: "${message.content}"`);
-      console.log(`Tool calls count: ${message.tool_calls ? message.tool_calls.length : 0}`);
-      if (message.tool_calls) {
-        message.tool_calls.forEach((call, index) => {
-          console.log(`  Tool ${index + 1}: ${call.function.name}`);
-          console.log(`  Arguments length: ${call.function.arguments.length} chars`);
-          console.log(`  Full arguments: ${call.function.arguments}`);
-        });
-      }
-      console.log(`📊 END RESPONSE DEBUG\n`);
-      
+ 
       // Add assistant response to history
       this.conversationHistory.push({
         role: 'assistant',
@@ -98,7 +78,7 @@ export class AIAgent {
       }
       
       // Debug: Log parsed actions
-      console.log(`Parsed actions for ${this.name}:`, result);
+      //console.log(`Parsed actions for ${this.name}:`, result);
       
       // Trim conversation history intelligently to save tokens
       // Keep only complete user → assistant → tool sequences
@@ -128,13 +108,25 @@ export class AIAgent {
   }
 
   buildSystemPrompt() {
-    let prompt = this.name + ' - 10x10 strategy ruler. Goal: 50+ tiles.\n';
-    prompt += 'ONLY use execute_turn_plan() with any number of actions + blurbs.\n';
-    prompt += 'Actions: assault, recruit, convert, construct, redistribute, scorch, send_message\n';
-    prompt += 'use send_message often to talk to other factions or to pray. expand aggresively to win as soon as possible'
-    prompt += 'Divine powers exist. They may favor, punish, or test mortals. Respond to their acts however you see fit.\n';
-    prompt += this.personality ? this.getPersonalityPrompt() : 'Aggressive expansion.';
-    return prompt;
+    const personalityPrompt = this.personality ? this.getPersonalityPrompt() : 'Focus on aggressive expansion.';
+    
+    return `${this.name} - Strategy ruler seeking 50+ tiles.
+USE execute_turn_plan() with actions: assault, recruit, convert, construct, redistribute, sanctuary, send_message.
+
+RULES:
+- Assault: Attack adjacent tiles (specify troop count, need at least equal troops to win, involves chance)
+- Recruit: Add troops to YOUR tiles (costs R)
+- Convert: Take neutral tiles with Faith (costs F)
+- Construct: Build on YOUR tiles (costs R) - Shrine/Idol(+F), Market(+R), Tower/Fortress(defense)
+- Redistribute: Move troops between YOUR adjacent tiles
+- Sanctuary: Protect tile from assault for 2 turns (costs 4F)
+- Send_message: Broadcast to all factions or pray to divine powers
+- Income: Each tile gives R per turn, Shrine/sacred give +F (faith is scarce!)
+- Only act on/from tiles you own (MINE: list)
+- Adjacent = up/down/left/right only
+
+${personalityPrompt}
+Divine powers may intervene.`;
   }
 
   getPersonalityPrompt() {
@@ -155,7 +147,7 @@ export class AIAgent {
     const basicPrompts = {
       aggressive: "Aggressive expansionist. Prioritize assault actions and territorial conquest.",
       defensive: "Defensive strategist. Fortify territory, recruit troops heavily.",
-      diplomatic: "Diplomatic manipulator. Use Convert and influence tactics.",
+      diplomatic: "Diplomatic manipulator. Use Convert and negotiation tactics.",
       economic: "Economic focused. Secure resource tiles, build Markets after expansion.",
       religious: "Religious zealot. Build Shrines, use Convert, seek sacred sites.",
       chaotic: "Unpredictable opportunist. Exploit weaknesses, take calculated risks.",
@@ -185,77 +177,128 @@ export class AIAgent {
     // DEBUG: Log observer actions
     console.log(`🌟 Observer actions for ${this.name}:`, observerActionsLastTurn);
     
-    let message = `T${turnNumber} ${this.name} | Resources R:${playerResources.R.toFixed(0)} F:${playerResources.F.toFixed(0)} I:${playerResources.I.toFixed(0)} | Tiles:${ownedTiles.length}\n`;
+    let message = `your resources: T(overall troops)${turnNumber} R(resources)${playerResources.R.toFixed(0)}F(faith)${playerResources.F.toFixed(0)}\n`;
     
-    // DIVINE EVENTS - ONLY APPEAR WHEN GOD ACTS MEANINGFULLY
-    if (observerActionsLastTurn && observerActionsLastTurn.length > 0) {
-      // Filter for meaningful actions first
-      const meaningfulActions = observerActionsLastTurn.filter(action => {
-        if (action.type === 'observe') {
-          const command = action.parameters.commentary || action.parameters.message || '';
-          return command.trim() && command !== 'The gods watch in silence';
-        }
-        return true; // Other actions (bless, smite, meteor) are always meaningful
-      });
-      
-      // Only show divine section if there are meaningful actions
-      if (meaningfulActions.length > 0) {
-        message += '\n⚡ DIVINE: ';
-        
-        meaningfulActions.forEach(action => {
-          if (action.type === 'observe') {
-            const commentary = action.parameters.commentary || action.parameters.message;
-            // Present as natural phenomenon, not as labeled message
-            message += 'The powers speak: ' + commentary.trim() + '. ';
-          } else if (action.type === 'bless') {
-            const reason = action.parameters.reason ? ' (' + action.parameters.reason + ')' : '';
-            message += 'Divine power surged at (' + action.parameters.x + ',' + action.parameters.y + ')' + reason + '. ';
-          } else if (action.type === 'smite') {
-            const reason = action.parameters.reason ? ' (' + action.parameters.reason + ')' : '';
-            message += 'Divine force struck (' + action.parameters.x + ',' + action.parameters.y + ')' + reason + '. ';
-          } else if (action.type === 'meteor') {
-            const reason = action.parameters.reason ? ' (' + action.parameters.reason + ')' : '';
-            message += 'Fire fell from above at (' + action.parameters.centerX + ',' + action.parameters.centerY + ')' + reason + '. ';
-          }
-        });
-        
-        message += '\n';
-      }
+    // OWNED TILES - essential for all actions
+    if (ownedTiles.length > 0) {
+      const tileDetails = ownedTiles.map(t => {
+        let desc = `(${t.x},${t.y})`;
+        if (t.troop_power > 0) desc += `:${t.troop_power.toFixed(1)}troops`;
+        if (t.building !== 'none') desc += `+${t.building}`;
+        return desc;
+      }).join(' ');
+      message += `MINE: ${tileDetails}\n`;
+    } else {
+      message += `MINE: None!\n`;
     }
     
-    // Count enemy tiles efficiently and show border conflicts
-    const enemyInfo = [];
-    const borderConflicts = [];
-    for (const [name, faction] of Object.entries(gameState.factions)) {
-      if (name !== this.name) {
-        const tiles = this.countTilesForFaction(gameState.grid, name);
-        enemyInfo.push(`${name}:${tiles}tiles`);
-        
-        // Find where we border this enemy
-        const borders = this.findBorders(gameState.grid, this.name, name);
-        if (borders.length > 0) {
-          borderConflicts.push(`${name} borders: ${borders.slice(0, 2).map(b => `(${b.my}→${b.their})`).join(' ')}`);
-        }
-      }
-    }
+    // TACTICAL SITUATION - visual grid overview
+    const gridInfo = this.buildGridVisualization(gameState.grid);
+    message += gridInfo;
     
-    // Show only key owned tiles (border tiles with troops)
-    const keyTiles = ownedTiles.filter(t => t.troop_power > 0).slice(0, 3);
-    if (keyTiles.length > 0) {
-      const tileList = keyTiles.map(t => '(' + t.x + ',' + t.y + '):' + t.troop_power.toFixed(0) + 't').join(' ');
-      message += 'Key tiles: ' + tileList;
-      if (ownedTiles.length > keyTiles.length) message += ' +' + (ownedTiles.length - keyTiles.length) + ' more';
-      message += '\n';
-    }
-    
-    message += 'Enemies: ' + enemyInfo.join(' ') + '\n';
-    if (borderConflicts.length > 0) {
-      message += borderConflicts.join(' | ') + '\n';
-    }
-    message += this.analyzeStrategicSituation(gameState.grid, ownedTiles);
-    message += '\nUse execute_turn_plan() with any number of actions.';
+    message += 'Use execute_turn_plan() with any number of actions.';
+
+    // DEBUG: Print the final message being sent to AI
+    console.log(`\n💬 === FINAL AI MESSAGE FOR ${this.name} ===`);
+    console.log(message);
+    console.log(`=== END FINAL AI MESSAGE ===\n`);
     
     return message;
+  }
+
+  buildGridVisualization(grid) {
+    let visualization = 'MAP (each cell: owner+troops+building):\n';
+    visualization += '   0123456789\n';
+    visualization += 'your tiles marked with your faction letter ' + this.name.slice(-1) + '\n';
+    
+    for (let y = 0; y < 10; y++) {
+      visualization += ` ${y} `;
+      for (let x = 0; x < 10; x++) {
+        const tile = grid[y][x];
+        let symbol = '';
+        
+        // Owner: A/B=factions, N=neutral
+        if (tile.owner === this.name) {
+          symbol = this.name.slice(-1); // A or B
+        } else if (tile.owner === 'Neutral') {
+          symbol = 'N';
+        } else {
+          symbol = tile.owner.slice(-1); // Other faction letter
+        }
+        
+        // Add troop count (0-9, or + for 10+)
+        const troops = Math.floor(tile.troop_power);
+        if (troops >= 10) {
+          symbol += '+';
+        } else {
+          symbol += troops.toString();
+        }
+        
+        // Add building indicator
+        if (tile.building === 'Shrine') symbol += 'S';
+        else if (tile.building === 'Fortress') symbol += 'F';
+        else if (tile.building === 'Tower') symbol += 'T';
+        else if (tile.building === 'Market') symbol += 'M';
+        else if (tile.type === 'sacred') symbol += '☼';
+        else symbol += '-';
+        
+        // Pad to 3 chars max, truncate if longer
+        symbol = (symbol + '   ').substring(0, 4);
+        visualization += symbol;
+      }
+      visualization += '\n';
+    }
+    
+    visualization += 'Legend: A/B=factions, N=neutral, 0-9/+=troops, S/F/T/M=building, ☼=sacred\n\n';
+    return visualization;
+  }
+
+  buildTacticalContext(grid, ownedTiles) {
+    const attackOptions = [];
+    const expansionTargets = [];
+    const enemyThreats = [];
+    
+    // For each owned tile with troops, find adjacent options
+    for (const tile of ownedTiles) {
+      if (tile.troop_power > 0) {
+        const adjacent = this.getAdjacentTiles(grid, tile.x, tile.y);
+        
+        for (const adj of adjacent) {
+          if (adj.owner === 'Neutral' && adj.troop_power <= 3) {
+            expansionTargets.push(`(${tile.x},${tile.y})→(${adj.x},${adj.y}):${adj.troop_power}t`);
+          } else if (adj.owner !== this.name && adj.owner !== 'Neutral') {
+            attackOptions.push(`(${tile.x},${tile.y})→(${adj.x},${adj.y}):${adj.troop_power}t${adj.owner}`);
+          }
+        }
+      }
+    }
+    
+    // Find enemy tiles that threaten us
+    for (let y = 0; y < 10; y++) {
+      for (let x = 0; x < 10; x++) {
+        const tile = grid[y][x];
+        if (tile.owner !== this.name && tile.owner !== 'Neutral' && tile.troop_power > 0) {
+          const adjacent = this.getAdjacentTiles(grid, x, y);
+          const threateningMine = adjacent.some(adj => adj.owner === this.name);
+          if (threateningMine) {
+            enemyThreats.push(`(${x},${y}):${tile.troop_power}t${tile.owner}`);
+          }
+        }
+      }
+    }
+    
+    let context = '';
+    if (expansionTargets.length > 0) {
+      context += `NEARBY: ${expansionTargets.slice(0, 3).join(' ')}\n`;
+    }
+    if (attackOptions.length > 0) {
+      context += `ENEMIES: ${attackOptions.slice(0, 2).join(' ')}\n`;
+    }
+    if (enemyThreats.length > 0) {
+      context += `THREATS: ${enemyThreats.slice(0, 2).join(' ')}\n`;
+    }
+    
+    return context;
   }
 
   findBorders(grid, myName, enemyName) {
@@ -384,7 +427,7 @@ export class AIAgent {
       'convert': 'Convert',
       'construct': 'Construct',
       'redistribute': 'Redistribute',
-      'scorch': 'Scorch',
+      'sanctuary': 'Sanctuary',
       'message': 'Message'
     };
     
