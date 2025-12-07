@@ -30,8 +30,8 @@ Each faction tracks:
 3. Observer takes final turn and interventions are broadcast to AI agents next cycle
 
 ### Actions
-**Primary Actions:** Reinforce, ProjectPressure, Assault, Convert, Construct
-**Secondary Actions:** Redistribute, Repair, Sanctuary, Message
+**Primary Actions:** Reinforce, Move, Convert, Construct
+**Secondary Actions:** Sanctuary, Message
 **Observer Powers:** Smite, Bless, Sanctify, Rend, Meteor, Observe
 
 ### Victory Conditions
@@ -84,7 +84,7 @@ const agentConfig = [
 ```
 
 2. **Available Personalities**:
-   - `aggressive`: Military expansionist, prioritizes assault actions
+   - `aggressive`: Military expansionist, prioritizes move/attack actions
    - `defensive`: Fortress builder, focuses on stability and defense
    - `diplomatic`: Uses conversion and negotiation tactics
    - `economic`: Resource-focused, builds markets and infrastructure

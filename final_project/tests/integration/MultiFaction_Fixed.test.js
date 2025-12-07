@@ -18,7 +18,7 @@ beforeAll(() => {
       async getTurnActions(context) {
         // MOCK: Return personality-based actions for testing different behaviors
         const mockActions = {
-          'aggressive': { type: 'Assault', parameters: { x: 2, y: 1 } },
+          'aggressive': { type: 'Move', parameters: { fromX: 1, fromY: 1, targetX: 2, targetY: 1, troops: 1 } },
           'defensive': { type: 'Reinforce', parameters: { x: 8, y: 8, target: 'stability' } },
           'economic': { type: 'Construct', parameters: { x: 5, y: 5, building: 'mine' } }
         };

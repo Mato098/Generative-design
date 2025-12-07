@@ -117,9 +117,9 @@ describe('ActionValidator', () => {
   });
   
   describe('validateAssault', () => {
-    test('should validate successful attack', () => {
-      const result = validator.validateAssault({
-        parameters: { fromX: 0, fromY: 0, targetX: 0, targetY: 1 }
+    test('should validate successful move', () => {
+      const result = validator.validateMove({
+        parameters: { fromX: 0, fromY: 0, targetX: 0, targetY: 1, troops: 1 }
       }, gameState, 'TestPlayer');
       
       expect(result.valid).toBe(true);
@@ -128,16 +128,16 @@ describe('ActionValidator', () => {
     test('should reject attack with no troops', () => {
       gameState.getTile(0, 0).troop_power = 0;
       
-      const result = validator.validateAssault({
-        parameters: { fromX: 0, fromY: 0, targetX: 0, targetY: 1 }
+      const result = validator.validateMove({
+        parameters: { fromX: 0, fromY: 0, targetX: 0, targetY: 1, troops: 1 }
       }, gameState, 'TestPlayer');
       
       expect(result.valid).toBe(false);
     });
     
     test('should reject non-adjacent attacks', () => {
-      const result = validator.validateAssault({
-        parameters: { fromX: 0, fromY: 0, targetX: 2, targetY: 2 }
+      const result = validator.validateMove({
+        parameters: { fromX: 0, fromY: 0, targetX: 2, targetY: 2, troops: 1 }
       }, gameState, 'TestPlayer');
       
       expect(result.valid).toBe(false);

@@ -6,14 +6,12 @@ export class ActionValidator {
     switch (action.type) {
       case 'Reinforce':
         return this.validateReinforce(action, gameState, playerName);
-      case 'Assault':
-        return this.validateAssault(action, gameState, playerName);
+      case 'Move':
+        return this.validateMove(action, gameState, playerName);
       case 'Convert':
         return this.validateConvert(action, gameState, playerName);
       case 'Construct':
         return this.validateConstruct(action, gameState, playerName);
-      case 'Redistribute':
-        return this.validateRedistribute(action, gameState, playerName);
       case 'Sanctuary':
         return this.validateSanctuary(action, gameState, playerName);
       default:
@@ -50,37 +48,47 @@ export class ActionValidator {
     return { valid: true };
   }
 
-  validateAssault(action, gameState, playerName) {
-    const { fromX, fromY, targetX, targetY } = action.parameters;
-    const fromTile = gameState.getTile(fromX, fromY);
+  validateMove(action, gameState, playerName) {
+    const { fromX, fromY, targetX, targetY, troops } = action.parameters;
+    
+    const sourceTile = gameState.getTile(fromX, fromY);
     const targetTile = gameState.getTile(targetX, targetY);
-    const faction = gameState.factions.get(playerName);
     
-    if (!fromTile || !targetTile) {
-      return { valid: false, error: 'Invalid tile coordinates' };
+    // Validate coordinates
+    if (!sourceTile || !targetTile) {
+      return { valid: false, error: "Invalid coordinates provided" };
     }
     
-    if (fromTile.owner !== playerName) {
-      return { valid: false, error: 'Can only assault from owned tiles' };
+    // Validate source tile ownership
+    if (sourceTile.owner !== playerName) {
+      return { valid: false, error: "You don't own the source tile" };
     }
     
-    if (targetTile.owner === playerName) {
-      return { valid: false, error: 'Cannot assault own tiles' };
-    }
-    
+    // Validate adjacency
     if (!this.areAdjacent(fromX, fromY, targetX, targetY)) {
-      return { valid: false, error: 'Tiles must be adjacent' };
-    }
-
-    if (targetTile.effects && targetTile.effects.sanctuary && targetTile.effects.sanctuary > gameState.turnNumber) {
-      return { valid: false, error: 'Target tile is protected by sanctuary' };
+      return { valid: false, error: "Target tile must be adjacent to source" };
     }
     
-    if (fromTile.troop_power <= 0) {
-      return { valid: false, error: 'No troops available for assault' };
+    // Validate troop availability
+    if (sourceTile.troop_power <= 0) {
+      return { valid: false, error: "Source tile has no troops to move" };
     }
-
-    return { valid: true };
+    
+    if (troops <= 0) {
+      return { valid: false, error: "Must move at least some troops" };
+    }
+    
+    // Check if target is owned by player (movement) or not (attack)
+    if (targetTile.owner === playerName) {
+      // This is a troop movement between own tiles
+      return { valid: true, moveType: 'redistribute' };
+    } else {
+      // This is an attack on enemy/neutral tile
+      if (targetTile.effects && targetTile.effects.sanctuary && targetTile.effects.sanctuary > gameState.turnNumber) {
+        return { valid: false, error: "Cannot attack tile under divine protection" };
+      }
+      return { valid: true, moveType: 'assault' };
+    }
   }
 
   validateConvert(action, gameState, playerName) {
@@ -156,35 +164,6 @@ export class ActionValidator {
     
     if (!faction.canAfford(cost)) {
       return { valid: false, error: `Insufficient resources (need ${cost.R} R)` };
-    }
-    
-    return { valid: true };
-  }
-
-  validateRedistribute(action, gameState, playerName) {
-    // Troop redistribution between tiles
-    const { fromX, fromY, toX, toY, amount } = action.parameters;
-    
-    const fromTile = gameState.getTile(fromX, fromY);
-    const toTile = gameState.getTile(toX, toY);
-    
-    // Validate coordinates
-    if (!fromTile || !toTile) {
-      return { valid: false, error: 'Invalid coordinates' };
-    }
-    
-    // Check ownership
-    if (fromTile.owner !== playerName || toTile.owner !== playerName) {
-      return { valid: false, error: 'Can only redistribute between your own tiles' };
-    }
-    
-    // Check amount
-    if (amount <= 0) {
-      return { valid: false, error: 'Amount must be positive' };
-    }
-    
-    if (fromTile.troop_power < amount) {
-      return { valid: false, error: 'Insufficient troops to transfer' };
     }
     
     return { valid: true };

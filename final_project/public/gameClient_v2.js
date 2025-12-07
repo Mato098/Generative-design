@@ -14,59 +14,82 @@ let actionLog = []; // Recent actions
 let messageLog = []; // Agent messages
 const MAX_LOG_ENTRIES = 10;
 
+let framesCol = '#2bff00ff';
+let edgesStyle1 = '═║╔╗╚╝';
+let edgesStyle2 = '─│┌┐└┘';
+let edgesStyle3 = '━┃┏┓┗┛';
+let edgesStyle4 = '▀▌▛▜▄▟';
+let edgesStyle5 = '─│╭╮╰╯';
+let edgesStyle6 = '═║✧◆◆✧';
+let edgesStyle7 = '━┃✹✹✹✹';
+let edgesStyle72 = '═║✹✹✹✹';
+let edgesStyle8 = '─│☼☼☼☼';
+
+let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
+
 // =============================================================================
 // LAYOUT DIMENSIONS (16:9 format)
 // =============================================================================
+let total_width = 2000;
+let total_height = 2000 * 9 / 16;
 const LAYOUT = {
-  totalWidth: 1600,
-  totalHeight: 900,
+  totalWidth: total_width,
+  totalHeight: total_height,
   
   // Left panel: Messages/Actions (3:9 ratio)
   messagesPanel: {
     x: 0,
     y: 0,
-    width: 300,
-    height: 900
+    width: total_width * 3 / 16,
+    height: total_height
   },
   
   // Center: Game grid (9:9 ratio)
   gamePanel: {
-    x: 300,
+    x: total_width * 3.25 / 16,
+    y: total_height * 1 / 16,
+    width: total_width * 9 / 16,
+    height: total_height * 15 / 16
+  },
+
+  titlePanel:{
+    x: total_width * 3 / 16,
     y: 0,
-    width: 900,
-    height: 900
+    width: total_width * 9 / 16,
+    height: total_height * 1 / 16
   },
   
   // Right panel: Info & Controls (4:9 ratio)
   rightPanel: {
-    x: 1200,
+    x: total_width * 12 / 16,
     y: 0,
-    width: 400,
-    height: 900,
+    width: total_width * 4 / 16,
+    height: total_height,
     
     // Split into top (info) and bottom (observer controls)
     infoSection: {
-      x: 1200,
+      x: total_width * 12 / 16,
       y: 0,
-      width: 400,
-      height: 450
+      width: total_width * 4 / 16,
+      height: total_height / 2
     },
     
     controlsSection: {
-      x: 1200,
-      y: 450,
-      width: 400,
-      height: 450
+      x: total_width * 12 / 16,
+      y: total_height / 2,
+      width: total_width * 4 / 16,
+      height: total_height / 2
     }
   }
 };
 
-let font;
-let fontSize = 14;
+let lines_font;
+let text_font;
+let font_size = total_height / 50;
 
 function preload(){
-    font = loadFont('Glass_TTY_VT220.ttf');
-    //font = loadFont('inconsolata.regular.ttf');
+    text_font = loadFont('Glass_TTY_VT220.ttf');
+    lines_font = loadFont('inconsolata.regular.ttf');
 }
 
 // =============================================================================
@@ -76,6 +99,8 @@ function setup() {
   createCanvas(LAYOUT.totalWidth, LAYOUT.totalHeight);
   connectToServer();
   //textFont(font);
+  textSize(font_size);
+  background('#533131ff');
 
   
 }
@@ -102,9 +127,11 @@ function connectToServer() {
 // =============================================================================
 function handleServerMessage(message) {
   console.log('📨 Received server message:', message.type, message.data);
+  console.log('📨 Full message object:', message);
   
   switch (message.type) {
     case 'gameState':
+      console.log('🎮 Game state updated');
       gameState = message.data;
       break;
       
@@ -113,6 +140,7 @@ function handleServerMessage(message) {
       
       // Add actions to animation queue
       if (message.data.actions && Array.isArray(message.data.actions)) {
+        console.log(`📋 Found ${message.data.actions.length} actions to process`);
         for (const action of message.data.actions) {
           console.log('➕ Adding action to queue:', action);
           animationQueue.push(action);
@@ -145,8 +173,11 @@ function handleServerMessage(message) {
       break;
       
     case 'gameStarted':
+      console.log('🎮 Game started, initial state:', message.data);
       gameState = message.data;
       actionLog.push('Game started!');
+      // Check if the game engine should start processing turns automatically
+      console.log('🔄 Waiting for first turn actions...');
       break;
       
     case 'gameEnded':
@@ -209,11 +240,10 @@ function executeAnimation(action, callback) {
 
 function getAnimationDuration(type) {
   const durations = {
-    'Assault': 1200,
+    'Move': 1200,
     'Convert': 1000,
     'Reinforce': 800,
     'Construct': 1000,
-    'Redistribute': 600,
     'Sanctuary': 1200,
     'Meteor': 1500,
     'Smite': 1000,
@@ -233,20 +263,23 @@ function notifyServerAnimationComplete() {
   }
 }
 
-let framesCol = '#2bff00ff';
-let edgesStyle1 = '═║╔╗╚╝';
-let edgesStyle2 = '─│┌┐└┘';
-let edgesStyle3 = '━┃┏┓┗┛';
-let edgesStyle4 = '▀▌▛▜▄▟';
-let edgesStyle5 = '─│╭╮╰╯';
-let edgesStyle6 = '═║✧◆◆✧';
-let edgesStyle7 = '━┃✹✹✹✹';
-let edgesStyle72 = '═║✹✹✹✹';
-let edgesStyle8 = '─│☼☼☼☼';
+function draw_panel_bg(x, y, w, h){
+  let horiz_slices_size = 30;
+  let slices_count = h / horiz_slices_size;
+  noStroke();
+  for (let i = 0; i < slices_count; i++){
+   if (i % 2 == 0){
+       col = '#000000ff';
+   } else {
+       col = '#080c08ff';
+   }
+    fill(col);
+    rect(x, y + i * horiz_slices_size, w, horiz_slices_size);
+  }
+}
 
 
-function draw_border_ascii(x, y, w, h, background_fill){
-    let style = edgesStyle1;
+function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = true, size = font_size){
     let horiz = style[0];
     let vert = style[1];
     let tl = style[2];
@@ -254,10 +287,14 @@ function draw_border_ascii(x, y, w, h, background_fill){
     let bl = style[4];
     let br = style[5];
 
+    textSize(size);
+
     push();
-    fill(background_fill);
-    rect(x, y, w, h);
-    
+    if (do_bg){
+      draw_panel_bg(x, y, w, h);
+    }
+    textFont();
+
     // Calculate character dimensions more precisely
     let charWidth = textWidth('═');
     let charHeight = textAscent() + textDescent();
@@ -268,7 +305,7 @@ function draw_border_ascii(x, y, w, h, background_fill){
     let horizontalOffset = (w - (charsHorizontal * charWidth)) / 2;
     let verticalOffset = (h - (charsVertical * charHeight)) / 2;
     
-    fill(framesCol);
+    fill(color || framesCol);
     textAlign(LEFT, TOP);
 
     // Draw horizontal borders with proper spacing
@@ -297,13 +334,14 @@ function draw_border_ascii(x, y, w, h, background_fill){
     
     textAlign(LEFT, BASELINE);
     pop();
+    textFont(text_font); 
 }
 
 // =============================================================================
 // MAIN DRAW LOOP
 // =============================================================================
 function draw() {
-  background(40);
+  background('#572929ff');
   
   if (!gameState) {
     drawLoadingScreen();
@@ -312,22 +350,29 @@ function draw() {
   
   // Draw the three main sections
   drawMessagesPanel();
-  drawGamePanel();
   drawInfoPanel();
   drawControlsPanel();
+  drawTitlePanel();
+  drawGamePanel();
   
   fill(255);
 }
 
-// =============================================================================
-// PANEL DRAWING FUNCTIONS (Your customization points)
-// =============================================================================
+function drawTitlePanel() {
+
+  draw_panel_bg(LAYOUT.titlePanel.x, LAYOUT.titlePanel.y, LAYOUT.titlePanel.width, LAYOUT.titlePanel.height);
+  draw_border_ascii(LAYOUT.titlePanel.x, LAYOUT.titlePanel.y, LAYOUT.titlePanel.width, LAYOUT.titlePanel.height);
+  fill(255);
+  textAlign(CENTER, CENTER);
+  text('God terminal   v1.04 (insider build)  (c) Heaven corp.', LAYOUT.titlePanel.x + LAYOUT.titlePanel.width / 2, LAYOUT.titlePanel.y + 30);
+  textAlign(LEFT);
+}
+
 function drawMessagesPanel() {
   // Left panel: Messages and action log
   const panel = LAYOUT.messagesPanel;
   
-  draw_border_ascii(panel.x, panel.y, panel.width, panel.height, 'red');
-  console.log('dims:', panel.x, panel.y, panel.width, panel.height);
+  draw_border_ascii(panel.x, panel.y, panel.width, panel.height);
   
   push();
   translate(panel.x, panel.y);
@@ -357,7 +402,6 @@ function drawMessagesPanel() {
   }
   
   pop();
-  draw_border_ascii(panel.x, panel.y, panel.width, panel.height, 30);
 }
 
 function drawGamePanel() {
@@ -367,9 +411,7 @@ function drawGamePanel() {
   push();
   translate(panel.x, panel.y);
   
-  // Background
-  fill(20);
-  rect(0, 0, panel.width, panel.height);
+  draw_border_ascii(-LAYOUT.totalWidth * 0.25/16, -9, panel.width, panel.height);
   
   if (gameState && gameState.grid) {
     drawGameGrid();
@@ -380,8 +422,8 @@ function drawGamePanel() {
 
 function drawGameGrid() {
   // This is where your main game visualization goes
-  const gridSize = 10;
-  const cellSize = LAYOUT.gamePanel.width / gridSize;
+  const gridSize = gameState.grid.length;
+  const cellSize = (LAYOUT.gamePanel.height * 0.95) / gridSize;
   
   for (let y = 0; y < gridSize; y++) {
     for (let x = 0; x < gridSize; x++) {
@@ -395,25 +437,24 @@ function drawGameGrid() {
 
 function drawTile(x, y, tile, cellSize) {
   // Basic tile drawing - customize this!
-  const screenX = x * cellSize;
-  const screenY = y * cellSize;
-  
-  // Background color based on owner
-  if (tile.owner === 'A') {
-    fill(100, 150, 255); // Blue
-  } else if (tile.owner === 'B') {
-    fill(255, 100, 100); // Red
-  } else {
-    fill(80, 80, 80); // Neutral gray
+  const screenX = x * cellSize + LAYOUT.totalWidth * 0.125/16;
+  const screenY = y * cellSize + LAYOUT.totalHeight * 0.1/9;
+
+  let agent_letter = tile.owner ? tile.owner[tile.owner.length -1] : null;
+  let agent_color = agents_color_map[agent_letter] || '#b4b4b4ff';
+
+  let bg_char = '';
+  //fill bg with bg char tiled
+  for (let yPos = screenY + textAscent(); yPos < screenY + cellSize - textAscent(); yPos += textAscent()) {
+    for (let xPos = screenX + textWidth(bg_char); xPos < screenX + cellSize - textWidth(bg_char); xPos += textWidth(bg_char)) {
+      fill('#2c231aff');
+      text(bg_char, xPos, yPos);
+    }
   }
   
-  rect(screenX, screenY, cellSize, cellSize);
-  
-  // Border
-  stroke(255);
-  noFill();
-  rect(screenX, screenY, cellSize, cellSize);
-  
+  fill(agent_color);
+  draw_border_ascii(screenX, screenY, cellSize, cellSize * 1.05, '~|****', agent_color, false, font_size * 0.75);
+    
   // Troop count
   if (tile.troop_power > 0) {
     fill(255);
@@ -429,7 +470,7 @@ function drawInfoPanel() {
   // Top-right: Faction info
   const panel = LAYOUT.rightPanel.infoSection;
 
-  draw_border_ascii(panel.x, panel.y, panel.width, panel.height, 30);
+  draw_border_ascii(panel.x, panel.y, panel.width, panel.height);
   
   push();
   translate(panel.x, panel.y);
@@ -454,7 +495,7 @@ function drawControlsPanel() {
   // Bottom-right: Observer powers and controls
   const panel = LAYOUT.rightPanel.controlsSection;
   
-  draw_border_ascii(panel.x, panel.y, panel.width, panel.height, 30);
+  draw_border_ascii(panel.x, panel.y, panel.width, panel.height);
 
   push();
   translate(panel.x, panel.y);
@@ -703,6 +744,12 @@ function startGame() {
       animationQueue = [];
       actionLog = [];
       messageLog = [];
+      
+      // Send ready signal to start turn processing
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        console.log('🎬 Sending animation complete to start game flow');
+        socket.send(JSON.stringify({ type: 'animationComplete' }));
+      }
     } else {
       console.error('❌ Error starting game:', data.message);
     }
@@ -710,33 +757,6 @@ function startGame() {
   .catch(error => {
     console.error('❌ Failed to start game:', error);
   });
-}
-
-// =============================================================================
-// UTILITY FUNCTIONS
-// =============================================================================
-function drawLayoutBorders() {
-  // Debug: Draw panel borders
-  stroke('green');
-  strokeWeight(2);
-  noFill();
-  
-  // Messages panel
-  rect(LAYOUT.messagesPanel.x, LAYOUT.messagesPanel.y, 
-       LAYOUT.messagesPanel.width, LAYOUT.messagesPanel.height);
-  
-  // Game panel
-  rect(LAYOUT.gamePanel.x, LAYOUT.gamePanel.y,
-       LAYOUT.gamePanel.width, LAYOUT.gamePanel.height);
-  
-  // Right panel sections
-  rect(LAYOUT.rightPanel.infoSection.x, LAYOUT.rightPanel.infoSection.y,
-       LAYOUT.rightPanel.infoSection.width, LAYOUT.rightPanel.infoSection.height);
-  
-  rect(LAYOUT.rightPanel.controlsSection.x, LAYOUT.rightPanel.controlsSection.y,
-       LAYOUT.rightPanel.controlsSection.width, LAYOUT.rightPanel.controlsSection.height);
-  
-  noStroke();
 }
 
 function drawLoadingScreen() {

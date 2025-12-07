@@ -114,57 +114,37 @@ export class GameState {
   }
 
   checkVictoryConditions() {
-    const totalTiles = 100;
     const factionNames = Array.from(this.factions.keys());
+    const activeFactions = [];
     
-    // Domination: >50% tiles for 2 continuous turns
+    // Check which factions still have tiles
     for (const name of factionNames) {
       const ownedTiles = this.getOwnedTiles(name).length;
-      if (ownedTiles > totalTiles / 2) {
-        return { type: 'domination', winner: name };
+      if (ownedTiles > 0) {
+        activeFactions.push(name);
       }
     }
     
-    // Devotion: highest Faith at turn 40
-    if (this.turnNumber >= 40) {
-      let highestFaith = -1;
+    // Victory by elimination - only one faction remains
+    if (activeFactions.length === 1) {
+      return { type: 'elimination', winner: activeFactions[0] };
+    }
+    
+    // Fallback: Domination after turn 50 (very long games)
+    if (this.turnNumber >= 50) {
+      let mostTiles = -1;
       let winner = null;
       
-      for (const [name, faction] of this.factions) {
-        if (faction.resources.F > highestFaith) {
-          highestFaith = faction.resources.F;
+      for (const name of factionNames) {
+        const ownedTiles = this.getOwnedTiles(name).length;
+        if (ownedTiles > mostTiles) {
+          mostTiles = ownedTiles;
           winner = name;
         }
       }
       
-      return { type: 'devotion', winner };
-    }
-    
-    // Prestige: most buildings at turn 30
-    if (this.turnNumber >= 30) {
-      const buildingCounts = new Map();
-      
-      for (let y = 0; y < 10; y++) {
-        for (let x = 0; x < 10; x++) {
-          const tile = this.grid[y][x];
-          if (tile.building !== 'none' && tile.owner !== 'Neutral') {
-            buildingCounts.set(tile.owner, (buildingCounts.get(tile.owner) || 0) + 1);
-          }
-        }
-      }
-      
-      let maxBuildings = -1;
-      let winner = null;
-      
-      for (const [name, count] of buildingCounts) {
-        if (count > maxBuildings) {
-          maxBuildings = count;
-          winner = name;
-        }
-      }
-      
-      if (winner) {
-        return { type: 'prestige', winner };
+      if (winner && mostTiles > 0) {
+        return { type: 'domination', winner };
       }
     }
     

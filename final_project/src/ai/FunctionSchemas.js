@@ -15,7 +15,7 @@ export const GAME_FUNCTION_SCHEMAS = [
               properties: {
                 action: {
                   type: "string",
-                  enum: ["recruit", "assault", "construct", "convert", "redistribute", "sanctuary", "send_message"],
+                  enum: ["recruit", "move", "construct", "convert", "sanctuary", "send_message"],
                   description: "The action to perform"
                 },
                 args: {
@@ -33,7 +33,7 @@ export const GAME_FUNCTION_SCHEMAS = [
                     toY: { type: "integer", minimum: 0, maximum: 9 },
                     
                     // Action-specific parameters
-                    amount: { type: "number", minimum: 0.1, description: "Amount for recruit/redistribute actions" },
+                    amount: { type: "number", minimum: 0.1, description: "Amount for recruit/move actions" },
                     troops: { type: "number", minimum: 0.1, description: "Number of troops to send (clamped to available)" },
                     building: { type: "string", enum: ["Shrine", "Idol", "Training", "Market", "Tower", "Fortress"] },
                     message: { type: "string" },
@@ -57,7 +57,7 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "recruit",
-      description: "Recruit troops on owned tile. Costs 1R per troop. Training building doubles recruitment.",
+      description: "Recruit troops on ANY owned tile! Costs 1R per troop. Build your army everywhere! Training building doubles recruitment.",
       parameters: {
         type: "object",
         properties: {
@@ -90,8 +90,8 @@ export const GAME_FUNCTION_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "assault",
-      description: "Launch military assault from owned tile to adjacent enemy tile",
+      name: "move",
+      description: "Move troops from owned tile to adjacent tile. If target is enemy/neutral, attack it. If target is yours, relocate troops.",
       parameters: {
         type: "object",
         properties: {
@@ -122,11 +122,11 @@ export const GAME_FUNCTION_SCHEMAS = [
           troops: {
             type: "number",
             minimum: 0.1,
-            description: "Number of troops to send (clamped to available)"
+            description: "Number of troops to move (clamped to available)"
           },
           blurb: {
             type: "string",
-            description: "A short command or declaration as ruler (e.g., 'Attack!', 'Claim that territory!', 'Charge!')"
+            description: "A short command (e.g., 'Attack!', 'Move troops!', 'Charge!', 'Reposition!')"
           }
         },
         required: ["fromX", "fromY", "targetX", "targetY", "troops", "blurb"]
@@ -199,54 +199,8 @@ export const GAME_FUNCTION_SCHEMAS = [
   {
     type: "function",
     function: {
-      name: "redistribute",
-      description: "Move troops between your tiles",
-      parameters: {
-        type: "object",
-        properties: {
-          fromX: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Source tile X coordinate"
-          },
-          fromY: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Source tile Y coordinate"
-          },
-          toX: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Destination tile X coordinate"
-          },
-          toY: {
-            type: "integer",
-            minimum: 0,
-            maximum: 9,
-            description: "Destination tile Y coordinate"
-          },
-          amount: {
-            type: "number",
-            minimum: 0.1,
-            description: "Amount of troops to transfer"
-          },
-          blurb: {
-            type: "string",
-            description: "A short command or declaration as ruler (e.g., 'Redeploy our forces!', 'Move troops north!')"
-          }
-        },
-        required: ["fromX", "fromY", "toX", "toY", "troops", "blurb"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
       name: "sanctuary",
-      description: "Use Faith to protect tile from assault for 2 turns. Costs 4F.",
+      description: "Use Faith to protect tile from attack for 2 turns. Costs 4F.",
       parameters: {
         type: "object",
         properties: {

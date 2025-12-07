@@ -293,15 +293,13 @@ export class GameEngine {
     // Apply action based on type
     switch (action.type) {
       case 'Reinforce':
-        return this.applyReinforceAction(action, playerName);
-      case 'Assault':
-        return this.applyAssaultAction(action, playerName);
+        return this.applyRecruitAction(action, playerName);
+      case 'Move':
+        return this.applyMoveAction(action, playerName);
       case 'Convert':
         return this.applyConvertAction(action, playerName);
       case 'Construct':
         return this.applyConstructAction(action, playerName);
-      case 'Redistribute':
-        return this.applyRedistributeAction(action, playerName);
       case 'Sanctuary':
         return this.applySanctuaryAction(action, playerName);
       default:
@@ -310,7 +308,7 @@ export class GameEngine {
   }
 
   // Action implementation methods (to be implemented)
-  applyReinforceAction(action, playerName) {
+  applyRecruitAction(action, playerName) {
     const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
     const faction = this.gameState.factions.get(playerName);
     const amount = action.parameters.amount || 1;
@@ -340,77 +338,89 @@ export class GameEngine {
     };
   }
 
-  applyAssaultAction(action, playerName) {
-    const fromTile = this.gameState.getTile(action.parameters.fromX, action.parameters.fromY);
-    const targetTile = this.gameState.getTile(action.parameters.targetX, action.parameters.targetY);
-    const faction = this.gameState.factions.get(playerName);
+  applyMoveAction(action, playerName) {
+    const { fromX, fromY, targetX, targetY, troops } = action.parameters;
+    const sourceTile = this.gameState.getTile(fromX, fromY);
+    const targetTile = this.gameState.getTile(targetX, targetY);
+    const troopsToMove = Math.min(troops, sourceTile.troop_power);
     
-    // DEBUG: Initial state
-    console.log(`   ⚔️  ASSAULT from (${action.parameters.fromX},${action.parameters.fromY}) → (${action.parameters.targetX},${action.parameters.targetY})`);
-    
-    // Clamp troops to available amount
-    const requestedTroops = Math.max(0.1, action.parameters.troops);
-    const actualTroops = Math.min(requestedTroops, fromTile.troop_power);
-    const strengthRatio = actualTroops / fromTile.troop_power;
-    
-    console.log(`    Attacker: total=${fromTile.troop_power.toFixed(1)}, sending=${actualTroops.toFixed(1)} troops`);
-    console.log(`    Target: owner=${targetTile.owner}, troops=${targetTile.troop_power.toFixed(1)}, type=${targetTile.type}`);
-    
-    const attackPower = actualTroops;
-    
-    // Defense calculation: troops + terrain/building bonuses
-    const baseDefense = targetTile.troop_power;
-    const hillBonus = targetTile.type === 'hill' ? 2 : 0;
-    const sacredBonus = targetTile.type === 'sacred' ? 3 : 0;
-    const fortressBonus = targetTile.building === 'Fortress' ? 5 : 0;
-    const towerBonus = targetTile.building === 'Tower' ? 2 : 0;
-    const defensePower = baseDefense + hillBonus + sacredBonus + fortressBonus + towerBonus;
-    
-    console.log(`   💪 Attack power: ${attackPower.toFixed(2)} vs Defense: ${defensePower.toFixed(2)}`);
-    
-    // Add combat randomness - roll dice for both sides
-    const attackRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
-    const defenseRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
-    
-    const finalAttackPower = attackPower * attackRoll;
-    const finalDefensePower = defensePower * defenseRoll;
-    
-    console.log(`   🎲 Combat rolls: Attack ${attackRoll.toFixed(2)} Defense ${defenseRoll.toFixed(2)}`);
-    console.log(`   ⚡ Final: ${finalAttackPower.toFixed(2)} vs ${finalDefensePower.toFixed(2)}`);
-    
-    const oldAttackerTroops = fromTile.troop_power;
-    const oldTargetTroops = targetTile.troop_power;
-    const oldTargetOwner = targetTile.owner;
-    
-    if (finalAttackPower > finalDefensePower) {
-      // Victory
-      const excessPower = finalAttackPower - finalDefensePower;
-      fromTile.troop_power *= (1 - strengthRatio);
-      targetTile.owner = playerName;
-      targetTile.troop_power = Math.min(excessPower, 50);
+    // Determine if this is an attack or troop movement
+    if (targetTile.owner === playerName) {
+      // Troop movement between own tiles
+      console.log(`   🚛 MOVE TROOPS from (${fromX},${fromY}) to (${targetX},${targetY}): ${troopsToMove} troops`);
       
-      console.log(`   🎉 ATTACK SUCCESSFUL!`);
+      sourceTile.troop_power -= troopsToMove;
+      targetTile.troop_power += troopsToMove;
       
       return {
-        type: 'conquest',
-        from: { x: fromTile.x, y: fromTile.y },
-        target: { x: targetTile.x, y: targetTile.y },
-        newOwner: playerName,
-        success: true
+        success: true,
+        type: 'move_troops',
+        from: { x: fromX, y: fromY },
+        target: { x: targetX, y: targetY },
+        troopsMoved: troopsToMove,
+        blurb: action.parameters.blurb || 'Troops moved!'
       };
     } else {
-      // Defeat
-      fromTile.troop_power *= (1 - strengthRatio * 0.75);
-      targetTile.troop_power *= 0.75;
+      // Attack on enemy/neutral tile
+      console.log(`   ⚔️  ATTACK from (${fromX},${fromY}) → (${targetX},${targetY}): ${troopsToMove} troops`);
       
-      console.log(`   💥 ATTACK REPELLED!`);
+      const attackPower = troopsToMove;
+      
+      // Defense calculation: troops + terrain/building bonuses
+      const baseDefense = targetTile.troop_power;
+      const hillBonus = targetTile.type === 'hill' ? 2 : 0;
+      const sacredBonus = targetTile.type === 'sacred' ? 3 : 0;
+      const fortressBonus = targetTile.building === 'Fortress' ? 5 : 0;
+      const towerBonus = targetTile.building === 'Tower' ? 2 : 0;
+      const defensePower = baseDefense + hillBonus + sacredBonus + fortressBonus + towerBonus;
+      
+      console.log(`   💪 Attack power: ${attackPower.toFixed(2)} vs Defense: ${defensePower.toFixed(2)}`);
+      
+      // Add combat randomness - roll dice for both sides
+      const attackRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
+      const defenseRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
+      
+      const finalAttackPower = attackPower * attackRoll;
+      const finalDefensePower = defensePower * defenseRoll;
+      
+      console.log(`   🎲 Combat rolls: Attack ${attackRoll.toFixed(2)} Defense ${defenseRoll.toFixed(2)}`);
+      console.log(`   ⚡ Final: ${finalAttackPower.toFixed(2)} vs ${finalDefensePower.toFixed(2)}`);
+      
+      // Remove attacking troops from source
+      const strengthRatio = troopsToMove / sourceTile.troop_power;
+      
+      if (finalAttackPower > finalDefensePower) {
+        // Victory
+        const excessPower = finalAttackPower - finalDefensePower;
+        sourceTile.troop_power *= (1 - strengthRatio);
+        targetTile.owner = playerName;
+        targetTile.troop_power = Math.min(excessPower, 50);
+        
+        console.log(`   🎉 ATTACK SUCCESSFUL!`);
+        
+        return {
+          success: true,
+          type: 'conquest',
+          from: { x: fromX, y: fromY },
+          target: { x: targetX, y: targetY },
+          newOwner: playerName,
+          blurb: action.parameters.blurb || 'Territory conquered!'
+        };
+      } else {
+        // Defeat
+        sourceTile.troop_power *= (1 - strengthRatio * 0.75);
+        targetTile.troop_power *= 0.75;
+        
+        console.log(`   💥 ATTACK REPELLED!`);
 
-      return {
-        type: 'assault_failed',
-        from: { x: fromTile.x, y: fromTile.y },
-        target: { x: targetTile.x, y: targetTile.y },
-        success: false
-      };
+        return {
+          success: false,
+          type: 'assault_failed',
+          from: { x: fromX, y: fromY },
+          target: { x: targetX, y: targetY },
+          blurb: action.parameters.blurb || 'Attack repelled!'
+        };
+      }
     }
   }
 
@@ -471,30 +481,6 @@ export class GameEngine {
     };
   }
 
-  applyRedistributeAction(action, playerName) {
-    const fromTile = this.gameState.getTile(action.parameters.fromX, action.parameters.fromY);
-    const toTile = this.gameState.getTile(action.parameters.toX, action.parameters.toY);
-    
-    // DEBUG: Before state
-    console.log(`   🚛 REDISTRIBUTE from (${action.parameters.fromX},${action.parameters.fromY}) to (${action.parameters.toX},${action.parameters.toY})`);
-    
-    const transferAmount = Math.min(action.parameters.amount, fromTile.troop_power);
-    const oldFromTroops = fromTile.troop_power;
-    const oldToTroops = toTile.troop_power;
-    
-    fromTile.troop_power -= transferAmount;
-    toTile.troop_power += transferAmount;
-    
-    console.log(`   ✅ Transferred ${transferAmount.toFixed(1)} troops`);
-    
-    return {
-      type: 'troop_redistribution',
-      from: { x: fromTile.x, y: fromTile.y },
-      to: { x: toTile.x, y: toTile.y },
-      amount: transferAmount
-    };
-  }
-
   applySanctuaryAction(action, playerName) {
     const tile = this.gameState.getTile(action.parameters.x, action.parameters.y);
     const faction = this.gameState.factions.get(playerName);
@@ -504,11 +490,11 @@ export class GameEngine {
     const faithCost = 4;
     faction.spendResources({ F: faithCost });
     
-    // Make tile immune to assault for 3 turns
+    // Make tile immune to attack for 3 turns
     if (!tile.effects) tile.effects = {};
     tile.effects.sanctuary = this.gameState.turnNumber + 2;
     
-    console.log(`   ✅ Tile protected from assault until turn ${tile.effects.sanctuary}`);
+    console.log(`   ✅ Tile protected from attack until turn ${tile.effects.sanctuary}`);
     
     return {
       type: 'sanctuary',
@@ -580,11 +566,15 @@ export class GameEngine {
     // Add to context for AI agents
     this.gameState.addObserverAction(action);
     
-    // Store the evolution promise so AI turns can wait for it
-    this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
-      console.error('❌ Error evolving personalities:', err);
-      this.pendingPersonalityEvolution = null;
-    });
+    // Only trigger personality evolution for divine interventions, not game state changes
+    const evolutionTriggeringActions = ['Smite', 'Bless', 'Meteor', 'Sanctify', 'Rend', 'Observe'];
+    if (evolutionTriggeringActions.includes(action.type)) {
+      // Store the evolution promise so AI turns can wait for it
+      this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
+        console.error('❌ Error evolving personalities:', err);
+        this.pendingPersonalityEvolution = null;
+      });
+    }
     
     return result;
   }

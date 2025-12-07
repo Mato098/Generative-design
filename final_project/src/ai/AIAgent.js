@@ -110,20 +110,23 @@ export class AIAgent {
   buildSystemPrompt() {
     const personalityPrompt = this.personality ? this.getPersonalityPrompt() : 'Focus on aggressive expansion.';
     
-    return `${this.name} - Strategy ruler seeking 50+ tiles.
-USE execute_turn_plan() with actions: assault, recruit, convert, construct, redistribute, sanctuary, send_message.
+    return `${this.name} - Conquest ruler seeking TOTAL DOMINATION!
+VICTORY: Eliminate all other factions by conquering their territories!
+
+USE execute_turn_plan() with actions: move, recruit, convert, construct, sanctuary, send_message.
 
 RULES:
-- Assault: Attack adjacent tiles (specify troop count, need at least equal troops to win, involves chance)
-- Recruit: Add troops to YOUR tiles (costs R)
-- Convert: Take neutral tiles with Faith (costs F)
+- Move: Send troops to adjacent tile (attack enemies/neutrals, relocate on your tiles)
+- Recruit: Add troops to ANY owned tile (costs 1R per troop) - BUILD YOUR ARMY!
+- Convert: Take neutral tiles with Faith (costs 3F)
 - Construct: Build on YOUR tiles (costs R) - Shrine/Idol(+F), Market(+R), Tower/Fortress(defense)
-- Redistribute: Move troops between YOUR adjacent tiles
-- Sanctuary: Protect tile from assault for 2 turns (costs 4F)
+- Sanctuary: Protect tile from attack for 2 turns (costs 4F)
 - Send_message: Broadcast to all factions or pray to divine powers
-- Income: Each tile gives R per turn, Shrine/sacred give +F (faith is scarce!)
-- Only act on/from tiles you own (MINE: list)
+- Income: Each tile gives 1R per turn, Shrine/sacred give +F (faith is scarce!)
+- Only act on/from tiles you own (marked with your letter on map)
 - Adjacent = up/down/left/right only
+
+Your strategy and decisions should be heavily influenced by your personality.
 
 ${personalityPrompt}
 Divine powers may intervene.`;
@@ -145,7 +148,7 @@ Divine powers may intervene.`;
 
     // Final fallback for unknown personalities
     const basicPrompts = {
-      aggressive: "Aggressive expansionist. Prioritize assault actions and territorial conquest.",
+      aggressive: "Aggressive expansionist. Prioritize move/attack actions and territorial conquest.",
       defensive: "Defensive strategist. Fortify territory, recruit troops heavily.",
       diplomatic: "Diplomatic manipulator. Use Convert and negotiation tactics.",
       economic: "Economic focused. Secure resource tiles, build Markets after expansion.",
@@ -177,20 +180,23 @@ Divine powers may intervene.`;
     // DEBUG: Log observer actions
     console.log(`🌟 Observer actions for ${this.name}:`, observerActionsLastTurn);
     
-    let message = `your resources: T(overall troops)${turnNumber} R(resources)${playerResources.R.toFixed(0)}F(faith)${playerResources.F.toFixed(0)}\n`;
-    
-    // OWNED TILES - essential for all actions
-    if (ownedTiles.length > 0) {
-      const tileDetails = ownedTiles.map(t => {
-        let desc = `(${t.x},${t.y})`;
-        if (t.troop_power > 0) desc += `:${t.troop_power.toFixed(1)}troops`;
-        if (t.building !== 'none') desc += `+${t.building}`;
-        return desc;
-      }).join(' ');
-      message += `MINE: ${tileDetails}\n`;
-    } else {
-      message += `MINE: None!\n`;
-    }
+    let message = `TURN ${turnNumber} - Your Turn as ${this.name}
+
+YOUR CURRENT RESOURCES:
+- Resources: ${playerResources.R.toFixed(0)}R (for troops, buildings) 
+- Faith: ${playerResources.F.toFixed(0)}F (for conversions, sanctuary)
+
+ACTION COSTS REMINDER:
+- Recruit: 1R per troop (can recruit on ANY owned tile!)
+- Move: FREE (attack or relocate troops)
+- Convert: 3F
+- Construct: 3-6R (Shrine 5R, Market 3R, etc)
+- Sanctuary: 4F (protection for 2 turns)
+- send_message: FREE
+
+ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
+
+`;
     
     // TACTICAL SITUATION - visual grid overview
     const gridInfo = this.buildGridVisualization(gameState.grid);
@@ -253,117 +259,6 @@ Divine powers may intervene.`;
     return visualization;
   }
 
-  buildTacticalContext(grid, ownedTiles) {
-    const attackOptions = [];
-    const expansionTargets = [];
-    const enemyThreats = [];
-    
-    // For each owned tile with troops, find adjacent options
-    for (const tile of ownedTiles) {
-      if (tile.troop_power > 0) {
-        const adjacent = this.getAdjacentTiles(grid, tile.x, tile.y);
-        
-        for (const adj of adjacent) {
-          if (adj.owner === 'Neutral' && adj.troop_power <= 3) {
-            expansionTargets.push(`(${tile.x},${tile.y})→(${adj.x},${adj.y}):${adj.troop_power}t`);
-          } else if (adj.owner !== this.name && adj.owner !== 'Neutral') {
-            attackOptions.push(`(${tile.x},${tile.y})→(${adj.x},${adj.y}):${adj.troop_power}t${adj.owner}`);
-          }
-        }
-      }
-    }
-    
-    // Find enemy tiles that threaten us
-    for (let y = 0; y < 10; y++) {
-      for (let x = 0; x < 10; x++) {
-        const tile = grid[y][x];
-        if (tile.owner !== this.name && tile.owner !== 'Neutral' && tile.troop_power > 0) {
-          const adjacent = this.getAdjacentTiles(grid, x, y);
-          const threateningMine = adjacent.some(adj => adj.owner === this.name);
-          if (threateningMine) {
-            enemyThreats.push(`(${x},${y}):${tile.troop_power}t${tile.owner}`);
-          }
-        }
-      }
-    }
-    
-    let context = '';
-    if (expansionTargets.length > 0) {
-      context += `NEARBY: ${expansionTargets.slice(0, 3).join(' ')}\n`;
-    }
-    if (attackOptions.length > 0) {
-      context += `ENEMIES: ${attackOptions.slice(0, 2).join(' ')}\n`;
-    }
-    if (enemyThreats.length > 0) {
-      context += `THREATS: ${enemyThreats.slice(0, 2).join(' ')}\n`;
-    }
-    
-    return context;
-  }
-
-  findBorders(grid, myName, enemyName) {
-    const borders = [];
-    for (let y = 0; y < 10; y++) {
-      for (let x = 0; x < 10; x++) {
-        if (grid[y][x].owner === myName && grid[y][x].troop_power > 0) {
-          const adjacent = this.getAdjacentTiles(grid, x, y);
-          for (const adj of adjacent) {
-            if (adj.owner === enemyName) {
-              borders.push({ my: `${x},${y}`, their: `${adj.x},${adj.y}` });
-              if (borders.length >= 3) return borders;
-            }
-          }
-        }
-      }
-    }
-    return borders;
-  }
-
-  countTilesForFaction(grid, factionName) {
-    let count = 0;
-    for (let row of grid) {
-      for (let tile of row) {
-        if (tile.owner === factionName) count++;
-      }
-    }
-    return count;
-  }
-
-  analyzeStrategicSituation(grid, ownedTiles) {
-    let analysis = '';
-    let expansionOpportunities = 0;
-    
-    // Find expansion opportunities (only count, don't detail)
-    for (const tile of ownedTiles) {
-      const adjacent = this.getAdjacentTiles(grid, tile.x, tile.y);
-      const easyTargets = adjacent.filter(t => t.owner === 'Neutral' && t.troop_power <= 2);
-      expansionOpportunities += easyTargets.length;
-    }
-    
-    if (expansionOpportunities > 0) {
-      analysis = '\n' + expansionOpportunities + ' easy targets';
-    } else {
-      analysis = '\nNo easy expansion';
-    }
-    
-    return analysis;
-  }
-
-  getAdjacentTiles(grid, x, y) {
-    const adjacent = [];
-    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
-    
-    for (const [dx, dy] of directions) {
-      const newX = x + dx;
-      const newY = y + dy;
-      if (newX >= 0 && newX < 10 && newY >= 0 && newY < 10) {
-        adjacent.push(grid[newY][newX]);
-      }
-    }
-    
-    return adjacent;
-  }
-
   parseActionsFromResponse(message) {
     const actions = [];
     let gameMessage = null;
@@ -423,10 +318,9 @@ Divine powers may intervene.`;
   mapFunctionToActionType(functionName) {
     const mapping = {
       'recruit': 'Reinforce',
-      'assault': 'Assault',
+      'move': 'Move',
       'convert': 'Convert',
       'construct': 'Construct',
-      'redistribute': 'Redistribute',
       'sanctuary': 'Sanctuary',
       'message': 'Message'
     };

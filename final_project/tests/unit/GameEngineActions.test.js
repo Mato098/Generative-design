@@ -179,10 +179,10 @@ describe('GameEngine Action Implementations', () => {
     });
   });
 
-  describe('applyAssaultAction', () => {
-    test('should capture weak enemy tile on successful assault', () => {
+  describe('applyMoveAction', () => {
+    test('should capture weak enemy tile on successful attack', () => {
       const action = {
-        type: 'Assault',
+        type: 'Move',
         parameters: { 
           fromX: 1, fromY: 1, 
           targetX: 2, targetY: 1, 
@@ -197,7 +197,7 @@ describe('GameEngine Action Implementations', () => {
       targetTile.troop_power = 1;
       targetTile.stability = 1;
       
-      const result = gameEngine.applyAssaultAction(action, 'TestPlayer');
+      const result = gameEngine.applyMoveAction(action, 'TestPlayer');
       
       expect(result.type).toBe('conquest');
       expect(result.success).toBe(true);
@@ -205,9 +205,9 @@ describe('GameEngine Action Implementations', () => {
       expect(targetTile.stability).toBe(3);
     });
     
-    test('should fail assault against strong enemy', () => {
+    test('should fail attack against strong enemy', () => {
       const action = {
-        type: 'Assault',
+        type: 'Move',
         parameters: { 
           fromX: 1, fromY: 1, 
           targetX: 3, targetY: 3, 
@@ -345,12 +345,11 @@ describe('GameEngine Action Implementations', () => {
       toTile.troop_power = 2;
       toTile.owner = 'TestPlayer'; // Must be owned to transfer to
       
-      const result = gameEngine.applyRedistributeAction(action, 'TestPlayer');
+      const result = gameEngine.applyMoveAction(action, 'TestPlayer');
       
       expect(fromTile.troop_power).toBe(7);
       expect(toTile.troop_power).toBe(5);
-      expect(result.type).toBe('troop_redistribution');
-      expect(result.amount).toBe(3);
+      expect(result.success).toBe(true);
     });
     
     test('should not transfer more troops than available', () => {
@@ -369,10 +368,10 @@ describe('GameEngine Action Implementations', () => {
       fromTile.troop_power = 8;
       toTile.owner = 'TestPlayer';
       
-      const result = gameEngine.applyRedistributeAction(action, 'TestPlayer');
+      const result = gameEngine.applyMoveAction(action, 'TestPlayer');
       
-      expect(result.amount).toBe(8); // Should only transfer available amount
-      expect(fromTile.troop_power).toBe(0);
+      expect(fromTile.troop_power).toBe(0); // All troops moved
+      expect(toTile.troop_power).toBe(8); // Received troops
     });
   });
 
