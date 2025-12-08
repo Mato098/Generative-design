@@ -12,7 +12,20 @@ let animationPaused = false;
 let selectedObserverAction = null; // For targeting observer powers
 let actionLog = []; // Recent actions
 let messageLog = []; // Agent messages
+let currentAnimation = null;
+let animationReservedTiles = new Set(); // Tiles currently being animated
+let pendingGameState = null; // Game state to apply after animations complete
 const MAX_LOG_ENTRIES = 10;
+
+// Tile caching for performance
+let tileCache = new Map(); // Cache rendered tiles
+let gameStateSnapshot = null; // Snapshot of game state before animations
+let isAnimationSequenceActive = false; // Track if we're in animation sequence
+let cacheClearPending = false; // Flag to clear cache on next frame start
+
+// Panel caching for performance
+let messagesPanelCache = null;
+let messagesPanelCacheInvalid = true;
 
 let framesCol = '#2bff00ff';
 let edgesStyle1 = '═║╔╗╚╝';
@@ -27,11 +40,13 @@ let edgesStyle8 = '─│☼☼☼☼';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
+import { animateMove, drawAnimatedTiles, getAnimationInfo } from './tileAnimations.js';
+
 // =============================================================================
 // LAYOUT DIMENSIONS (16:9 format)
 // =============================================================================
-let total_width = 2000;
-let total_height = 2000 * 9 / 16;
+let total_width = 1500;
+let total_height = total_width * 9 / 16;
 const LAYOUT = {
   totalWidth: total_width,
   totalHeight: total_height,
@@ -102,8 +117,15 @@ function setup() {
   textSize(font_size);
   background('#533131ff');
 
-  
+  // Export globals for animation module after everything is initialized
+  window.LAYOUT = LAYOUT;
+  window.tileCache = tileCache;
+  window.agents_color_map = agents_color_map;
+  window.text_font = text_font;
+  window.font_size = font_size;
 }
+
+  
 
 function connectToServer() {
   socket = new WebSocket('ws://localhost:3000');
@@ -126,6 +148,7 @@ function connectToServer() {
 // SERVER MESSAGE HANDLING
 // =============================================================================
 function handleServerMessage(message) {
+  const msgStart = performance.now();
   console.log('📨 Received server message:', message.type, message.data);
   console.log('📨 Full message object:', message);
   
@@ -133,6 +156,8 @@ function handleServerMessage(message) {
     case 'gameState':
       console.log('🎮 Game state updated');
       gameState = message.data;
+      //tileCache.clear(); // Clear cache for new state
+      //console.log('🧹 Cleared tile cache for new game state');
       break;
       
     case 'actionsExecuted':
@@ -164,19 +189,28 @@ function handleServerMessage(message) {
         console.warn('⚠️ No actions array in actionsExecuted message');
       }
       
-      // Update game state if provided
+      // Store new game state and snapshot current state before animations
       if (message.data.newGameState) {
-        gameState = message.data.newGameState;
+        if (!isAnimationSequenceActive) {
+          // Skip expensive deep cloning - we don't actually need the snapshot
+          // gameStateSnapshot = JSON.parse(JSON.stringify(gameState));
+          isAnimationSequenceActive = true;
+          console.log('📸 Started animation sequence (skipped expensive snapshot)');
+        }
+        pendingGameState = message.data.newGameState;
+        console.log('📦 Stored pending game state for after animations');
       }
-      
+      messagesPanelCacheInvalid = true;
       processAnimationQueue();
       break;
       
     case 'gameStarted':
       console.log('🎮 Game started, initial state:', message.data);
       gameState = message.data;
+      tileCache.clear(); // Clear cache for initial state
+      console.log('🧹 Cleared tile cache for game start');
       actionLog.push('Game started!');
-      // Check if the game engine should start processing turns automatically
+      
       console.log('🔄 Waiting for first turn actions...');
       break;
       
@@ -189,14 +223,27 @@ function handleServerMessage(message) {
       console.error('Server error:', message.data);
       break;
   }
+  
+  const msgEnd = performance.now();
+  console.log(`⏱️ Message handling took ${(msgEnd - msgStart).toFixed(2)}ms`);
 }
 
 // =============================================================================
 // ANIMATION SYSTEM
 // =============================================================================
+// Global state tracking to reduce console spam
+let lastProcessQueueLoggedState = '';
+
 function processAnimationQueue() {
-  console.log(`🎞️ processAnimationQueue: animating=${isAnimating}, queue=${animationQueue.length}, paused=${animationPaused}`);
-  console.log(`📋 Queue contents:`, animationQueue.map(a => a.action ? a.action.type : 'unknown'));
+  const queueStart = performance.now();
+  // Only log when actually changing state, not on every frame
+  const currentState = `${isAnimating}-${animationQueue.length}-${animationPaused}`;
+  
+  if (currentState !== lastProcessQueueLoggedState) {
+    console.log(`🎞️ processAnimationQueue: animating=${isAnimating}, queue=${animationQueue.length}, paused=${animationPaused}`);
+    console.log(`📋 Queue contents:`, animationQueue.map(a => a.action ? a.action.type : 'unknown'));
+    lastProcessQueueLoggedState = currentState;
+  }
   
   // If paused, don't process anything
   if (animationPaused) {
@@ -224,18 +271,40 @@ function processAnimationQueue() {
     isAnimating = false;
     processAnimationQueue(); // Process next action (will check pause state again)
   });
+  
+  const queueEnd = performance.now();
+  if ((queueEnd - queueStart) > 1) {
+    console.log(`⏱️ processAnimationQueue took ${(queueEnd - queueStart).toFixed(2)}ms`);
+  }
 }
 
 function executeAnimation(action, callback) {
   // Simple timing-based animation system
   const actionType = action.action ? action.action.type : action.type;
   const duration = getAnimationDuration(actionType);
-  
-  // TODO: Replace with your visual animations
-  console.log(`Animating: ${actionType}`, action);
-  
-  // For now, just wait for the duration
-  setTimeout(callback, duration);
+
+  switch (actionType) {
+    case 'Move':
+      currentAnimation = 'Move';
+      // Reserve tiles for animation
+      const fromKey = `${action.action.parameters.fromX}-${action.action.parameters.fromY}`;
+      const toKey = `${action.action.parameters.toX}-${action.action.parameters.toY}`;
+      animationReservedTiles.add(fromKey);
+      animationReservedTiles.add(toKey);
+      
+      animateMove(action, duration, () => {
+        // Clear reserved tiles when animation completes
+        animationReservedTiles.delete(fromKey);
+        animationReservedTiles.delete(toKey);
+        callback();
+      });
+      break;
+    default:
+      console.log(`ACTION ANIM NOT IMPLEMENTED: ${actionType}, defaulting to wait`);
+      currentAnimation = 'default';
+      setTimeout(callback, duration);
+      break;
+  }
 }
 
 function getAnimationDuration(type) {
@@ -255,6 +324,21 @@ function getAnimationDuration(type) {
 }
 
 function notifyServerAnimationComplete() {
+  // Apply pending game state changes after animations are done
+  if (pendingGameState) {
+    console.log('🎬 Applying final game state after animations');
+    gameState = pendingGameState;
+    pendingGameState = null;
+    
+    // Don't clear cache - let tiles update individually as needed
+    console.log('🔄 Game state updated - tiles will refresh as needed');
+  }
+  
+  // Reset animation sequence state
+  isAnimationSequenceActive = false;
+  gameStateSnapshot = null;
+  console.log('✅ Animation sequence complete');
+  
   if (socket && socket.readyState === WebSocket.OPEN) {
     console.log('🎬 Notifying server: animations complete');
     socket.send(JSON.stringify({ type: 'animationComplete' }));
@@ -267,6 +351,7 @@ function draw_panel_bg(x, y, w, h){
   let horiz_slices_size = 30;
   let slices_count = h / horiz_slices_size;
   noStroke();
+  let col;
   for (let i = 0; i < slices_count; i++){
    if (i % 2 == 0){
        col = '#000000ff';
@@ -288,15 +373,15 @@ function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = t
     let br = style[5];
 
     textSize(size);
+    textFont(text_font); 
 
     push();
     if (do_bg){
       draw_panel_bg(x, y, w, h);
     }
-    textFont();
 
     // Calculate character dimensions more precisely
-    let charWidth = textWidth('═');
+    let charWidth = textWidth(horiz);
     let charHeight = textAscent() + textDescent();
     let charsHorizontal = Math.floor(w / charWidth);
     let charsVertical = Math.floor(h / charHeight);
@@ -308,39 +393,52 @@ function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = t
     fill(color || framesCol);
     textAlign(LEFT, TOP);
 
-    // Draw horizontal borders with proper spacing
-    for (let i = 1; i < charsHorizontal - 1; i++){
-        let xPos = x + horizontalOffset + i * charWidth ;
-        text(horiz, xPos, y + verticalOffset);
-        text(horiz, xPos, y + h - charHeight - verticalOffset);
-    }
+    // Build horizontal border strings once
+    let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
+    let bottomBorder = bl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + br;
+    
+    // Draw top and bottom borders with single text calls
+    text(topBorder, x + horizontalOffset, y + verticalOffset);
+    text(bottomBorder, x + horizontalOffset, y + h - charHeight - verticalOffset);
 
-    // Draw continuous vertical borders
+    // Draw left and right vertical borders efficiently
     let leftX = x + horizontalOffset;
     let rightX = x + w - charWidth - horizontalOffset;
     let startY = y + verticalOffset + charHeight;
     let endY = y + h - charHeight - verticalOffset;
     
-    for (let yPos = startY; yPos < endY - 2; yPos += charHeight-1){
-        text(vert, leftX, yPos);
-        text(vert, rightX, yPos);
+    // Batch vertical characters into fewer calls
+    let verticalCount = Math.floor((endY - startY) / (charHeight - 1));
+    if (verticalCount > 0) {
+        let leftVertical = vert.repeat(verticalCount);
+        let rightVertical = vert.repeat(verticalCount);
+        
+        // Draw left border as one string
+        push();
+        translate(leftX, startY);
+        for (let i = 0; i < verticalCount; i++) {
+            text(vert, 0, i * (charHeight - 1));
+        }
+        pop();
+        
+        // Draw right border as one string  
+        push();
+        translate(rightX, startY);
+        for (let i = 0; i < verticalCount; i++) {
+            text(vert, 0, i * (charHeight - 1));
+        }
+        pop();
     }
-    
-    // Draw corners with precise positioning
-    text(tl, x + horizontalOffset, y + verticalOffset);
-    text(tr, x + w - charWidth - horizontalOffset, y + verticalOffset);
-    text(bl, x + horizontalOffset, y + h - charHeight - verticalOffset);
-    text(br, x + w - charWidth - horizontalOffset, y + h - charHeight - verticalOffset);
     
     textAlign(LEFT, BASELINE);
     pop();
-    textFont(text_font); 
 }
 
 // =============================================================================
 // MAIN DRAW LOOP
 // =============================================================================
 function draw() {
+  const drawStart = performance.now();
   background('#572929ff');
   
   if (!gameState) {
@@ -349,13 +447,53 @@ function draw() {
   }
   
   // Draw the three main sections
+  const panelsStart = performance.now();
+  
+  const msgStart = performance.now();
   drawMessagesPanel();
+  const msgEnd = performance.now();
+  
+  const infoStart = performance.now();
   drawInfoPanel();
+  const infoEnd = performance.now();
+  
+  const controlsStart = performance.now();
   drawControlsPanel();
+  const controlsEnd = performance.now();
+  
+  const titleStart = performance.now();
   drawTitlePanel();
+  const titleEnd = performance.now();
+  
+  const gameStart = performance.now();
   drawGamePanel();
+  const gameEnd = performance.now();
+  
+  const panelsEnd = performance.now();
   
   fill(255);
+
+  if (isAnimating) {
+    const animInfo = getAnimationInfo();
+    const animText = animInfo ? 
+      `Moving (${animInfo.fromX},${animInfo.fromY}) -> (${animInfo.toX},${animInfo.toY})` :
+      'Unknown animation';
+    text('Animating: ' + animText, LAYOUT.totalWidth * 0.1, LAYOUT.totalHeight * 0.95);
+  }
+  
+  const drawEnd = performance.now();
+  const totalDrawTime = (drawEnd - drawStart).toFixed(2);
+  const panelsTime = (panelsEnd - panelsStart).toFixed(2);
+  const msgTime = (msgEnd - msgStart).toFixed(2);
+  const infoTime = (infoEnd - infoStart).toFixed(2);
+  const controlsTime = (controlsEnd - controlsStart).toFixed(2);
+  const titleTime = (titleEnd - titleStart).toFixed(2);
+  const gameTime = (gameEnd - gameStart).toFixed(2);
+  
+  let framerate = frameRate();
+  text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
+  text(`Draw: ${totalDrawTime}ms | Panels: ${panelsTime}ms`, 10, 530);
+  text(`Msg:${msgTime} Info:${infoTime} Ctrl:${controlsTime} Title:${titleTime} Game:${gameTime}`, 10, 550);
 }
 
 function drawTitlePanel() {
@@ -369,40 +507,112 @@ function drawTitlePanel() {
 }
 
 function drawMessagesPanel() {
-  // Left panel: Messages and action log
+  // Left panel: Messages and action log  
   const panel = LAYOUT.messagesPanel;
+
+  if (messagesPanelCacheInvalid) {
+    messagesPanelCache = createGraphics(panel.width, panel.height);
+    renderMessagesPanelToBuffer(messagesPanelCache, panel);
+    messagesPanelCacheInvalid = false;
+  }
+  image(messagesPanelCache, panel.x, panel.y);
+}
+
+function renderMessagesPanelToBuffer(buffer, panel) {
+  // Clear buffer with transparent background
+  buffer.clear();
   
-  draw_border_ascii(panel.x, panel.y, panel.width, panel.height);
+  // Draw background stripes
+  let horiz_slices_size = 30;
+  let slices_count = panel.height / horiz_slices_size;
+  buffer.noStroke();
+  for (let i = 0; i < slices_count; i++) {
+    let col = i % 2 == 0 ? buffer.color(0, 0, 0) : buffer.color(8, 12, 8);
+    buffer.fill(col);
+    buffer.rect(0, i * horiz_slices_size, panel.width, horiz_slices_size);
+  }
   
-  push();
-  translate(panel.x, panel.y);
+  // Draw border - adapted from draw_border_ascii for buffer
+  let horiz = '=';
+  let vert = 'I';
+  let tl = '*', tr = '*', bl = '*', br = '*';
   
-  // Action log
-  fill(255);
-  text('Action Log:', 20, 30);
+  buffer.textSize(font_size);
+  buffer.textFont(text_font);
+  
+  // Calculate character dimensions
+  let charWidth = buffer.textWidth(horiz);
+  let charHeight = buffer.textAscent() + buffer.textDescent();
+  let charsHorizontal = Math.floor(panel.width / charWidth);
+  let charsVertical = Math.floor(panel.height / charHeight);
+  
+  // Adjust spacing for better alignment
+  let horizontalOffset = (panel.width - (charsHorizontal * charWidth)) / 2;
+  let verticalOffset = (panel.height - (charsVertical * charHeight)) / 2;
+  
+  buffer.fill('#2bff00ff');
+  buffer.textAlign(LEFT, TOP);
+  
+  // Build and draw borders
+  let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
+  let bottomBorder = bl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + br;
+  
+  buffer.text(topBorder, horizontalOffset, verticalOffset);
+  buffer.text(bottomBorder, horizontalOffset, panel.height - charHeight - verticalOffset);
+  
+  // Draw vertical borders
+  let leftX = horizontalOffset;
+  let rightX = panel.width - charWidth - horizontalOffset;
+  let startY = verticalOffset + charHeight;
+  let endY = panel.height - charHeight - verticalOffset;
+  
+  let verticalCount = Math.floor((endY - startY) / (charHeight - 1));
+  if (verticalCount > 0) {
+    for (let i = 0; i < verticalCount; i++) {
+      buffer.text(vert, leftX, startY + i * (charHeight - 1));
+      buffer.text(vert, rightX, startY + i * (charHeight - 1));
+    }
+  }
+  
+  // Text content
+  buffer.noStroke();
+  buffer.textAlign(LEFT, BASELINE);
+  
+  // White text first
+  buffer.fill(255);
+  buffer.text('Action Log:', 20, 30);
   
   let y = 50;
   for (let i = Math.max(0, actionLog.length - 15); i < actionLog.length; i++) {
-    text(actionLog[i], 20, y);
+    buffer.text(actionLog[i], 20, y);
     y += 18;
   }
   
-  // Messages section
+  // Messages section header
   y += 20;
-  text('Messages:', 20, y);
+  buffer.text('Messages:', 20, y);
   y += 20;
   
+  // Collect message positions
+  let messageYPositions = [];
   for (let i = Math.max(0, messageLog.length - 5); i < messageLog.length; i++) {
-    const msg = messageLog[i];
-    fill(180, 180, 255); // Light blue for player name
-    text(`${msg.player}:`, 20, y);
-    fill(255);
-    text(msg.text, 20, y + 15);
+    messageYPositions.push({ msg: messageLog[i], y: y });
     y += 35;
   }
   
-  pop();
+  // Draw all player names in blue
+  buffer.fill(180, 180, 255);
+  for (const pos of messageYPositions) {
+    buffer.text(`${pos.msg.player}:`, 20, pos.y);
+  }
+  
+  // Draw all message text in white
+  buffer.fill(255);
+  for (const pos of messageYPositions) {
+    buffer.text(pos.msg.text, 20, pos.y + 15);
+  }
 }
+
 
 function drawGamePanel() {
   // Center: Main game grid (9:9)
@@ -414,41 +624,157 @@ function drawGamePanel() {
   draw_border_ascii(-LAYOUT.totalWidth * 0.25/16, -9, panel.width, panel.height);
   
   if (gameState && gameState.grid) {
+    const gridSize = gameState.grid.length;
+    const cellSize = (LAYOUT.gamePanel.height * 0.95) / gridSize;
+    
     drawGameGrid();
+    
+    // Draw animated tiles on top
+    if (currentAnimation === 'Move') {
+      drawAnimatedTiles(gameState, cellSize);
+    }
   }
   
   pop();
 }
 
 function drawGameGrid() {
-  // This is where your main game visualization goes
   const gridSize = gameState.grid.length;
   const cellSize = (LAYOUT.gamePanel.height * 0.95) / gridSize;
   
+  // Simple caching: if tile not cached OR tile content changed, create it
+  let tilesCreatedThisFrame = 0;
   for (let y = 0; y < gridSize; y++) {
     for (let x = 0; x < gridSize; x++) {
       const tile = gameState.grid[y][x];
+      const tileKey = `${x}-${y}`;
       
-      // TODO: Replace with your tile visualization
-      drawTile(x, y, tile, cellSize);
+      // Create simple content hash for this tile
+      const tileHash = `${tile.owner}-${tile.troop_power}-${tile.building}`;
+      const cachedTile = tileCache.get(tileKey);
+      
+      // Check if we need to regenerate this tile
+      if (!cachedTile || cachedTile.hash !== tileHash) {
+        tilesCreatedThisFrame++;
+        // Create graphics buffer for this tile
+        const tileGraphics = createGraphics(cellSize, cellSize);
+        renderTileToBuffer(tileGraphics, tile, cellSize);
+        // Store with hash for comparison
+        tileGraphics.hash = tileHash;
+        tileCache.set(tileKey, tileGraphics);
+      }
+      
+      // Check if tile is reserved for animation
+      if (animationReservedTiles.has(tileKey) && currentAnimation === 'Move') {
+        // Skip drawing - animateMove will handle this tile
+        continue;
+      }
+      
+      // Draw cached tile
+      let screenX = x *(cellSize + LAYOUT.totalWidth * 0.05/16) + LAYOUT.totalWidth * 0.025/16;
+      let screenY = y * cellSize + LAYOUT.totalHeight * 0.1/9;
+
+      //default anim movement
+      screenX += Math.sin(frameCount * 0.005 + x + y);
+      screenY += Math.cos(frameCount * 0.018 + x + y);
+
+      image(tileCache.get(tileKey), screenX, screenY);
     }
+  }
+  
+  if (tilesCreatedThisFrame > 0) {
+    console.log(`🎨 Created ${tilesCreatedThisFrame} new tile graphics (Total cached: ${tileCache.size})`);
+  }
+}
+
+function renderTileToBuffer(buffer, tile, cellSize) {
+  // Render tile to graphics buffer for caching - clone of draw_border_ascii version
+  buffer.background(0, 0); // Transparent background
+  
+  let agent_letter = tile.owner ? tile.owner[tile.owner.length -1] : null;
+  let agent_color = agents_color_map[agent_letter] || '#b4b4b4ff';
+
+  
+  buffer.textFont(text_font); 
+
+  let bg_char = 'v';
+  // Background characters - optimized batching like drawTile()
+  buffer.fill('#2c231aff');
+  const charWidth = buffer.textWidth(bg_char);
+  const charHeight = buffer.textAscent();
+  const charsPerRow = Math.floor((cellSize - charWidth) / charWidth);
+  const rowCount = Math.floor((cellSize - charHeight) / charHeight);
+  
+  if (charsPerRow > 0 && rowCount > 0) {
+    const bgRow = bg_char.repeat(charsPerRow);
+    for (let row = 0; row < rowCount; row++) {
+      const yPos = charHeight + (row * charHeight);
+      buffer.text(bgRow, charWidth, yPos);
+    }
+  }
+  
+  // Use draw_border_ascii equivalent in buffer
+  let horiz = '~';
+  let vert = '|';
+  let tl = '*', tr = '*', bl = '*', br = '*';
+  
+  buffer.fill(agent_color);
+  buffer.textAlign(LEFT, TOP);
+  buffer.textSize(font_size * 0.75);
+  
+  // Build and draw borders like draw_border_ascii
+  let charsHorizontal = Math.floor(cellSize / charWidth);
+  let charsVertical = Math.floor(cellSize / charHeight);
+  
+  let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
+  let bottomBorder = bl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + br;
+  
+  // Draw top and bottom borders
+  buffer.text(topBorder, 0, 0);
+  buffer.text(bottomBorder, 0, cellSize - charHeight);
+  
+  // Draw vertical borders - batch into fewer calls
+  for (let i = 1; i < charsVertical - 1; i++) {
+    buffer.text(vert, 0, i * charHeight);
+    buffer.text(vert, cellSize - charWidth, i * charHeight);
+  }
+    
+  // Troop count
+  if (tile.troop_power > 0) {
+    buffer.fill(255);
+    buffer.textAlign(CENTER, CENTER);
+    buffer.text(Math.floor(tile.troop_power), cellSize/2, cellSize/2);
+  }
+
+  if (tile.building != 'none') {
+    buffer.fill(agent_color);
+    buffer.textAlign(CENTER, CENTER);
+    buffer.text(tile.building, cellSize/2, cellSize * 0.75);
   }
 }
 
 function drawTile(x, y, tile, cellSize) {
-  // Basic tile drawing - customize this!
+  // Basic tile drawing - optimize background character batching
   const screenX = x * cellSize + LAYOUT.totalWidth * 0.125/16;
   const screenY = y * cellSize + LAYOUT.totalHeight * 0.1/9;
 
   let agent_letter = tile.owner ? tile.owner[tile.owner.length -1] : null;
   let agent_color = agents_color_map[agent_letter] || '#b4b4b4ff';
 
-  let bg_char = '';
-  //fill bg with bg char tiled
-  for (let yPos = screenY + textAscent(); yPos < screenY + cellSize - textAscent(); yPos += textAscent()) {
-    for (let xPos = screenX + textWidth(bg_char); xPos < screenX + cellSize - textWidth(bg_char); xPos += textWidth(bg_char)) {
-      fill('#2c231aff');
-      text(bg_char, xPos, yPos);
+  let bg_char = 'v';
+  // Batch background characters into strings instead of individual text() calls
+  fill('#2c231aff');
+  const charWidth = textWidth(bg_char);
+  const charHeight = textAscent();
+  const charsPerRow = Math.floor((cellSize - charWidth) / charWidth);
+  const rowCount = Math.floor((cellSize - charHeight) / charHeight);
+  let tilebg = ''
+  if (charsPerRow > 0 && rowCount > 0) {
+    const bgRow = bg_char.repeat(charsPerRow);
+    for (let row = 0; row < rowCount; row++) {
+      const yPos = screenY + textAscent() + (row * charHeight);
+      tilebg += bgRow + '\n';
+      text(bgRow, screenX + charWidth, yPos);
     }
   }
   
@@ -461,7 +787,13 @@ function drawTile(x, y, tile, cellSize) {
     textAlign(CENTER, CENTER);
     text(Math.floor(tile.troop_power), screenX + cellSize/2, screenY + cellSize/2);
   }
-  
+
+  if (tile.building != 'none') {
+    fill(agent_color);
+    textAlign(CENTER, CENTER);
+    text(tile.building, screenX + cellSize/2, screenY + cellSize * 0.75);
+  }
+
   noStroke();
   textAlign(LEFT);
 }
@@ -502,7 +834,7 @@ function drawControlsPanel() {
   
   // TODO: Draw observer power buttons
   fill(255);
-  text('Observer Powers', 20, 30);
+  text('Your Powers', 20, 30);
   
   // Pause/Resume button
   const pauseButton = { x: 20, y: 160, w: 100, h: 30 };
@@ -711,13 +1043,6 @@ function togglePause() {
   }
 }
 
-function keyPressed() {
-  // Spacebar to toggle pause
-  if (key === ' ') {
-    togglePause();
-  }
-}
-
 function startGame() {
   console.log('🎮 Starting new game...');
   
@@ -771,8 +1096,46 @@ function handleGameEnd(data) {
   // TODO: Show victory screen
 }
 
+function keyPressed() {
+  if (key == 'a'){
+    //set gamestate to test - full 10x10 grid
+    const grid = [];
+    for (let y = 0; y < 10; y++) {
+      const row = [];
+      for (let x = 0; x < 10; x++) {
+        if (x < 5) {
+          row.push({owner:'Faction A', troop_power: Math.floor(Math.random() * 15) + 1, building:'none'});
+        } else {
+          row.push({owner:'Faction B', troop_power: Math.floor(Math.random() * 15) + 1, building:'none'});
+        }
+      }
+      grid.push(row);
+    }
+    
+    gameState = {
+      grid: grid,
+      factions: {
+        'Faction A': { tiles: 50, resources: { R: 100, F: 50 } },
+        'Faction B': { tiles: 50, resources: { R: 100, F: 50 } }
+      },
+      gameStatus: 'active'
+    };
+    animationQueue.push({
+      action: { type: 'Move', parameters: { fromX: 4, fromY: 5, targetX: 5, targetY: 5, troops: 5 } }
+    });
+    processAnimationQueue();
+  }
+}
+
 // =============================================================================
 // P5.js REQUIRED FUNCTIONS
 // =============================================================================
 // setup() and draw() are defined above
 // mousePressed() is defined above
+
+// Make globals available for P5.js
+window.setup = setup;
+window.draw = draw;
+window.preload = preload;
+window.mousePressed = mousePressed;
+window.keyPressed = keyPressed;
