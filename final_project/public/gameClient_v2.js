@@ -24,21 +24,15 @@ let tileCache = new Map(); // Cache rendered tiles
 let gameStateSnapshot = null; // Snapshot of game state before animations
 let isAnimationSequenceActive = false; // Track if we're in animation sequence
 let cacheClearPending = false; // Flag to clear cache on next frame start
+let textBoxContent = '';
+let textBoxActive = false;
 
 // Panel caching for performance
 let messagesPanelCache = null;
 let messagesPanelCacheInvalid = true;
 
 let framesCol = '#2bff00ff';
-let edgesStyle1 = '═║╔╗╚╝';
-let edgesStyle2 = '─│┌┐└┘';
-let edgesStyle3 = '━┃┏┓┗┛';
-let edgesStyle4 = '▀▌▛▜▄▟';
-let edgesStyle5 = '─│╭╮╰╯';
-let edgesStyle6 = '═║✧◆◆✧';
-let edgesStyle7 = '━┃✹✹✹✹';
-let edgesStyle72 = '═║✹✹✹✹';
-let edgesStyle8 = '─│☼☼☼☼';
+let framesColBleed = '#315529ea';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
@@ -99,6 +93,14 @@ const LAYOUT = {
     }
   }
 };
+let buttons = [
+    { name: 'Smite', x: LAYOUT.rightPanel.controlsSection.width * 0.1, y: LAYOUT.rightPanel.controlsSection.height * 0.15, w: 80, h: 30 },
+    { name: 'Bless', x: LAYOUT.rightPanel.controlsSection.width * 0.4, y: LAYOUT.rightPanel.controlsSection.height * 0.15, w: 80, h: 30 },
+    { name: 'Meteor', x: LAYOUT.rightPanel.controlsSection.width * 0.7, y: LAYOUT.rightPanel.controlsSection.height * 0.15, w: 80, h: 30 }
+  ];
+let pauseButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.1, y: LAYOUT.rightPanel.controlsSection.height * 0.25, w: 80, h: 30 };
+let startButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.4, y: LAYOUT.rightPanel.controlsSection.height * 0.25, w: LAYOUT.rightPanel.controlsSection.width * 0.515, h: 30 };
+let textBoxLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.1, y: LAYOUT.rightPanel.controlsSection.height * 0.35, w: LAYOUT.rightPanel.controlsSection.width * 0.8, h: 30 };
 
 let lines_font;
 let text_font;
@@ -357,16 +359,16 @@ function notifyServerAnimationComplete() {
   }
 }
 
-function draw_panel_bg(x, y, w, h){
+function draw_panel_bg(x, y, w, h, bg_alpha = 1){
   let horiz_slices_size = 30;
   let slices_count = h / horiz_slices_size;
   noStroke();
   let col;
   for (let i = 0; i < slices_count; i++){
    if (i % 2 == 0){
-       col = '#000000ff';
+       col = color('#000000ff');
    } else {
-       col = '#080c08ff';
+       col = lerpColor(color('#000000ff'), color('#080c08ff'), bg_alpha);
    }
     fill(col);
     rect(x, y + i * horiz_slices_size, w, horiz_slices_size);
@@ -374,7 +376,7 @@ function draw_panel_bg(x, y, w, h){
 }
 
 
-function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = true, size = font_size){
+function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = true, size = font_size, dim_bg = 1){
     let horiz = style[0];
     let vert = style[1];
     let tl = style[2];
@@ -385,10 +387,14 @@ function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = t
     textSize(size);
     textFont(text_font); 
 
+    
     push();
     if (do_bg){
-      draw_panel_bg(x, y, w, h);
+      draw_panel_bg(x, y, w, h, dim_bg);
     }
+
+    strokeWeight(2);
+    stroke(framesColBleed);
 
     // Calculate character dimensions more precisely
     let charWidth = textWidth(horiz);
@@ -513,6 +519,8 @@ function drawTitlePanel() {
   draw_border_ascii(LAYOUT.titlePanel.x, LAYOUT.titlePanel.y, LAYOUT.titlePanel.width, LAYOUT.titlePanel.height);
   fill(255);
   textAlign(CENTER, CENTER);
+  strokeWeight(2);
+  stroke(90);
   text('God terminal   v1.04 (insider build)  (c) Heaven corp.', LAYOUT.titlePanel.x + LAYOUT.titlePanel.width / 2, LAYOUT.titlePanel.y + 30);
   textAlign(LEFT);
 }
@@ -561,8 +569,10 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   let horizontalOffset = (panel.width - (charsHorizontal * charWidth)) / 2;
   let verticalOffset = (panel.height - (charsVertical * charHeight)) / 2;
   
-  buffer.fill('#2bff00ff');
+  buffer.fill(framesCol);
   buffer.textAlign(LEFT, TOP);
+  buffer.strokeWeight(2);
+  buffer.stroke(framesColBleed);
   
   // Build and draw borders
   let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
@@ -632,7 +642,7 @@ function drawGamePanel() {
   push();
   translate(panel.x, panel.y);
   
-  draw_border_ascii(-LAYOUT.totalWidth * 0.25/16, -9, panel.width, panel.height);
+  draw_border_ascii(-LAYOUT.totalWidth * 0.25/16, -9, panel.width, panel.height, '=I****', null, true, font_size, 0.25);
   
   if (gameState && gameState.grid) {
     const gridSize = gameState.grid.length;
@@ -714,6 +724,8 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   let bg_char = 'v';
   // Background characters - optimized batching like drawTile()
   buffer.fill('#2c231aff');
+  buffer.strokeWeight(3);
+  buffer.stroke(lerpColor(buffer.color('#2c231aff'), buffer.color('#000000af'), 0.7));
   const charWidth = buffer.textWidth(bg_char);
   const charHeight = buffer.textAscent();
   const charsPerRow = Math.floor((cellSize - charWidth) / charWidth);
@@ -733,6 +745,8 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   let tl = '*', tr = '*', bl = '*', br = '*';
   
   buffer.fill(agent_color);
+  buffer.strokeWeight(3);
+  buffer.stroke(lerpColor(color(agent_color), color('#000000af'), 0.7));
   buffer.textAlign(LEFT, TOP);
   buffer.textSize(font_size * 0.75);
   
@@ -848,10 +862,10 @@ function drawControlsPanel() {
   
   // TODO: Draw observer power buttons
   fill(255);
-  text('Your Powers', 20, 30);
+  text('Your Powers', window.LAYOUT.rightPanel.width * 0.1, window.LAYOUT.rightPanel.height * 0.05);
   
   // Pause/Resume button
-  const pauseButton = { x: 20, y: 160, w: 100, h: 30 };
+  const pauseButton = pauseButtonLayout;
   fill(animationPaused ? 100 : 60);
   rect(pauseButton.x, pauseButton.y, pauseButton.w, pauseButton.h);
   fill(255);
@@ -861,10 +875,11 @@ function drawControlsPanel() {
   
   // Example observer buttons
   drawObserverButtons();
+  drawTextBox();
   
   // Start Game button (if game not started)
   if (!gameState || gameState.gameStatus !== 'active') {
-    const startButton = { x: 20, y: 200, w: 120, h: 40 };
+    const startButton = startButtonLayout;
     fill(gameState ? 60 : 100);
     rect(startButton.x, startButton.y, startButton.w, startButton.h);
     fill(255);
@@ -876,15 +891,62 @@ function drawControlsPanel() {
   pop();
 }
 
+function drawTextBox() {
+  let {x: boxX, y: boxY, w: boxW, h: boxH} = textBoxLayout;
+  if (textWidth(textBoxContent) > boxW - 10) {
+    boxH *= ceil(textWidth(textBoxContent) / (boxW - 10));
+  } 
+
+  // Text box background
+  if (textBoxActive) {
+    fill(50, 50, 80); // Darker when active
+    stroke(100, 150, 255); // Blue border when active
+  } else {
+    fill(30);
+    stroke(100);
+  }
+  strokeWeight(2);
+  rect(boxX, boxY, boxW, boxH);
+  
+  // Text content
+  fill(255);
+  textAlign(LEFT, CENTER);
+  //textSize(14);
+  let numCharsFit = floor((boxW - 10) / textWidth('W'));
+  for (let i = 0; i < ceil(textWidth(textBoxContent) / (boxW - 10)); i++) {
+    text(textBoxContent.substring(i * numCharsFit, (i + 1) * numCharsFit), boxX + 10, boxY + 15 + i * (font_size + 2));
+  }
+  
+  // Cursor when active
+  if (textBoxActive && frameCount % 60 < 30) {
+    const textW = textWidth(textBoxContent);
+    fill(framesCol);
+    text('I', (textBoxContent.length % numCharsFit) * textWidth('W') + boxX + 10, boxY + 15 +  (font_size + 2) * floor(textBoxContent.length / numCharsFit));
+  }
+  
+  // Send button
+  const buttonX = boxX + boxW + 10;
+  const buttonY = boxY;
+  const buttonW = 60;
+  const buttonH = boxH;
+  
+  if (textBoxContent.trim().length > 0) {
+    fill(60, 120, 60); // Green when text is available
+  } else {
+    fill(40); // Gray when disabled
+  }
+  rect(buttonX, buttonY, buttonW, buttonH);
+  
+  fill(255);
+  textAlign(CENTER, CENTER);
+  text("Send", buttonX + buttonW/2, buttonY + buttonH/2);
+  
+  // Reset text alignment
+  textAlign(LEFT);
+  noStroke();
+}
+
 function drawObserverButtons() {
-  const buttons = [
-    { name: 'Smite', x: 20, y: 60, w: 80, h: 30 },
-    { name: 'Bless', x: 120, y: 60, w: 80, h: 30 },
-    { name: 'Meteor', x: 220, y: 60, w: 80, h: 30 },
-    { name: 'Observe', x: 20, y: 110, w: 80, h: 30 },
-    { name: 'Sanctify', x: 120, y: 110, w: 80, h: 30 },
-    { name: 'Rend', x: 220, y: 110, w: 80, h: 30 }
-  ];
   
   for (const button of buttons) {
     // Button background
@@ -949,9 +1011,31 @@ function getPanelClick(screenX, screenY) {
 }
 
 function handleControlsClick(x, y) {
+  // Check text box click
+  const {x: textBoxX, y: textBoxY, w: textBoxW, h: textBoxH} = textBoxLayout;
+  if (x >= textBoxX && x <= textBoxX + textBoxW && 
+      y >= textBoxY && y <= textBoxY + textBoxH) {
+    textBoxActive = true;
+    return;
+  }
+  
+  // Check send button click
+  const sendButtonX = textBoxX + textBoxW + 10;
+  const sendButtonY = textBoxY;
+  const sendButtonW = 60;
+  const sendButtonH = textBoxH;
+  if (x >= sendButtonX && x <= sendButtonX + sendButtonW && 
+      y >= sendButtonY && y <= sendButtonY + sendButtonH) {
+    sendObserverMessage();
+    return;
+  }
+  
+  // Click elsewhere deactivates text box
+  textBoxActive = false;
+  
   // Check start game button first (if game not active)
   if (!gameState || gameState.gameStatus !== 'active') {
-    const startButton = { x: 20, y: 200, w: 120, h: 40 };
+    const startButton = startButtonLayout;
     if (x >= startButton.x && x <= startButton.x + startButton.w && 
         y >= startButton.y && y <= startButton.y + startButton.h) {
       startGame();
@@ -960,28 +1044,23 @@ function handleControlsClick(x, y) {
   }
   
   // Check pause/resume button
-  const pauseButton = { x: 20, y: 160, w: 100, h: 30 };
+  const pauseButton = pauseButtonLayout;
   if (x >= pauseButton.x && x <= pauseButton.x + pauseButton.w && 
       y >= pauseButton.y && y <= pauseButton.y + pauseButton.h) {
     togglePause();
     return;
   }
   
-  // Check observer button clicks
-  const buttons = [
-    { name: 'Smite', x: 20, y: 60, w: 80, h: 30 },
-    { name: 'Bless', x: 120, y: 60, w: 80, h: 30 },
-    { name: 'Meteor', x: 220, y: 60, w: 80, h: 30 },
-    { name: 'Observe', x: 20, y: 110, w: 80, h: 30 },
-    { name: 'Sanctify', x: 120, y: 110, w: 80, h: 30 },
-    { name: 'Rend', x: 220, y: 110, w: 80, h: 30 }
-  ];
-  
   for (const button of buttons) {
     if (x >= button.x && x <= button.x + button.w && 
         y >= button.y && y <= button.y + button.h) {
-      selectedObserverAction = button.name;
-      console.log(`Selected observer action: ${button.name}`);
+          if (selectedObserverAction === button.name) {
+            selectedObserverAction = null;
+            console.log(`Deselected observer action: ${button.name}`);
+          } else {
+            selectedObserverAction = button.name;
+            console.log(`Selected observer action: ${button.name}`);
+          }
       break;
     }
   }
@@ -997,7 +1076,7 @@ function handleGameClick(x, y) {
   
   if (gridX >= 0 && gridX < 10 && gridY >= 0 && gridY < 10) {
     executeObserverAction(selectedObserverAction, gridX, gridY);
-    selectedObserverAction = null; // Clear selection after use
+    selectedObserverAction = null;
   }
 }
 
@@ -1057,6 +1136,29 @@ function togglePause() {
   }
 }
 
+function sendObserverMessage() {
+  if (!textBoxContent.trim()) return;
+  
+  console.log('📝 Sending observer message:', textBoxContent);
+  
+  // Send message to server
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'observerAction',
+      action: {
+        type: 'Message',
+        parameters: {
+          text: textBoxContent.trim()
+        }
+      }
+    }));
+  }
+  
+  // Clear text box and deactivate
+  textBoxContent = '';
+  textBoxActive = false;
+}
+
 function startGame() {
   console.log('🎮 Starting new game...');
   
@@ -1111,6 +1213,22 @@ function handleGameEnd(data) {
 }
 
 function keyPressed() {
+  // Handle text input when text box is active
+  if (textBoxActive) {
+    if (key === 'Enter') {
+      sendObserverMessage();
+    } else if (key === 'Escape') {
+      textBoxActive = false;
+    } else if (key === 'Backspace') {
+      textBoxContent = textBoxContent.slice(0, -1);
+    } else if (key.length === 1 && textBoxContent.length < 200) {
+      // Add character if it's printable and box isn't full
+      textBoxContent += key;
+    }
+    return; // Don't process other keys when text box is active
+  }
+  
+  // Original test code
   if (key == 'a'){
     //fake a conversion animation for testing
     animationReservedTiles.add('4-5');

@@ -291,8 +291,4 @@ export function drawTiles_Convert(gameState, cellSize) {
     textSize(cellSize * 0.5);
     text('X', X * cellSize + cellSize / 2 - 10, Y * cellSize + cellSize / 2 + 10);
   }
-  
-  
-
-  
 }

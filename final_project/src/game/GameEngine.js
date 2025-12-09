@@ -691,6 +691,17 @@ export class GameEngine {
         }
         return { type: 'resume', message: 'Game resumed' };
       
+      case 'Message':
+        // Observer sending a message to all agents
+        const messageText = action.parameters.text;
+        console.log(`💬 Observer message: "${messageText}"`);
+        this.gameState.addObserverAction({
+          type: 'message',
+          text: messageText,
+          turn: this.gameState.turnNumber
+        });
+        return { type: 'message', text: messageText };
+      
       default:
         throw new Error(`Unknown observer action: ${action.type}`);
     }
