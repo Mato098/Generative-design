@@ -61,42 +61,10 @@ export class AIAgent {
       // Parse actions from function calls
       const result = this.parseActionsFromResponse(message);
       
-      // Add tool result messages for each tool call
-      if (message.tool_calls) {
-        for (const toolCall of message.tool_calls) {
-          this.conversationHistory.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({
-              success: true,
-              action_queued: true,
-              function: toolCall.function.name,
-              parameters: toolCall.function.arguments
-            })
-          });
-        }
-      }
+      // Store tool calls for later feedback
+      this.pendingToolCalls = message.tool_calls || [];
       
-      // Debug: Log parsed actions
-      //console.log(`Parsed actions for ${this.name}:`, result);
-      
-      // Trim conversation history intelligently to save tokens
-      // Keep only complete user → assistant → tool sequences
-      if (this.conversationHistory.length > 12) {
-        // Find valid cutoff points (after tool messages or user messages)
-        const cutoffIndex = this.conversationHistory.length - 10;
-        
-        // Make sure we don't cut in the middle of a tool sequence
-        let safeIndex = cutoffIndex;
-        for (let i = cutoffIndex; i >= 0; i--) {
-          if (this.conversationHistory[i].role === 'user') {
-            safeIndex = i;
-            break;
-          }
-        }
-        
-        this.conversationHistory = this.conversationHistory.slice(safeIndex);
-      }
+      // Don't add tool results here - will be added after action execution
       
       return result;
       
@@ -104,6 +72,50 @@ export class AIAgent {
       console.error(`AI Agent ${this.name} error:`, error);
       // Return empty actions if AI fails
       return { actions: [], message: null };
+    }
+  }
+
+  // Provide feedback on action results to the AI
+  addActionFeedback(actionResults) {
+    if (this.pendingToolCalls && actionResults) {
+      // Ensure we have the assistant message with tool_calls in our history
+      const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
+      if (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.tool_calls) {
+        console.warn(`⚠️ Missing assistant message with tool_calls for ${this.name}, skipping feedback`);
+        this.pendingToolCalls = null;
+        return;
+      }
+      
+      for (let i = 0; i < this.pendingToolCalls.length && i < actionResults.length; i++) {
+        const toolCall = this.pendingToolCalls[i];
+        const result = actionResults[i];
+        
+        this.conversationHistory.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            action: toolCall.function.name,
+            success: result.success,
+            reason: result.error || "Action completed successfully"
+          })
+        });
+      }
+      this.pendingToolCalls = null;
+      
+      // Trim conversation history after adding tool results
+      // But keep at least the last user + assistant + tool sequence intact
+      if (this.conversationHistory.length > 8) {
+        // Find the start of the last complete turn (user message)
+        let keepFromIndex = Math.max(0, this.conversationHistory.length - 6);
+        for (let i = keepFromIndex; i >= 0; i--) {
+          if (this.conversationHistory[i].role === 'user') {
+            keepFromIndex = i;
+            break;
+          }
+        }
+        this.conversationHistory = this.conversationHistory.slice(keepFromIndex);
+        console.log(`🔪 Trimmed ${this.name} conversation history to ${this.conversationHistory.length} messages`);
+      }
     }
   }
 
@@ -118,9 +130,9 @@ USE execute_turn_plan() with actions: move, recruit, convert, construct, sanctua
 RULES:
 - Move: Send troops to adjacent tile (attack enemies/neutrals, relocate on your tiles)
 - Recruit: Add troops to ANY owned tile (costs 1R per troop) - BUILD YOUR ARMY!
-- Convert: Take neutral tiles with Faith (costs 3F)
+- Convert: Take adjacent tile with Faith (costs 3F). enemy troops flee to adjacent tiles, eliminated if no space
 - Construct: Build on YOUR tiles (costs R) - Shrine/Idol(+F), Market(+R), Tower/Fortress(defense)
-- Sanctuary: Protect tile from attack for 2 turns (costs 4F)
+- Sanctuary: Protect tile from attacks for 2 turns (costs 4F)
 - Send_message: Broadcast to all factions or pray to divine powers
 - Income: Each tile gives 1R per turn, Shrine/sacred give +F (faith is scarce!)
 - Only act on/from tiles you own (marked with your letter on map)

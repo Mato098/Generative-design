@@ -46,6 +46,9 @@ export class GameState {
     const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
     
     for (const [dx, dy] of directions) {
+      if (x + dx < 0 || x + dx >= this.grid[0].length || y + dy < 0 || y + dy >= this.grid.length) {
+        continue;
+      }
       const tile = this.getTile(x + dx, y + dy);
       if (tile) {
         adjacent.push(tile);
@@ -66,14 +69,19 @@ export class GameState {
   }
 
   nextPlayer() {
+    console.log(`🔄 Before nextPlayer: Turn ${this.turnNumber}, Player ${this.currentPlayerIndex} (${this.playerOrder[this.currentPlayerIndex]})`);
+    
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerOrder.length;
     
     // If we've cycled back to first player, increment turn
     if (this.currentPlayerIndex === 0) {
       this.turnNumber++;
+      console.log(`📈 Turn incremented to ${this.turnNumber}`);
       // DON'T clear observer actions yet - AI agents need to see them
       // They'll be cleared after all AI agents have processed them
     }
+    
+    console.log(`🔄 After nextPlayer: Turn ${this.turnNumber}, Player ${this.currentPlayerIndex} (${this.playerOrder[this.currentPlayerIndex]})`);
   }
 
   clearObserverActions() {

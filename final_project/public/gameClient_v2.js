@@ -17,6 +17,8 @@ let animationReservedTiles = new Set(); // Tiles currently being animated
 let pendingGameState = null; // Game state to apply after animations complete
 const MAX_LOG_ENTRIES = 10;
 
+let tileRealLocations = new Map(); // Map tile keys to real pixel locations
+
 // Tile caching for performance
 let tileCache = new Map(); // Cache rendered tiles
 let gameStateSnapshot = null; // Snapshot of game state before animations
@@ -40,7 +42,7 @@ let edgesStyle8 = '─│☼☼☼☼';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
-import { animateMove, drawAnimatedTiles, getAnimationInfo } from './tileAnimations.js';
+import { animateMove, animateConvert, drawTiles_Convert, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo } from './tileAnimations.js';
 
 // =============================================================================
 // LAYOUT DIMENSIONS (16:9 format)
@@ -123,9 +125,8 @@ function setup() {
   window.agents_color_map = agents_color_map;
   window.text_font = text_font;
   window.font_size = font_size;
+  window.renderTileToBuffer = renderTileToBuffer;
 }
-
-  
 
 function connectToServer() {
   socket = new WebSocket('ws://localhost:3000');
@@ -291,11 +292,20 @@ function executeAnimation(action, callback) {
       const toKey = `${action.action.parameters.toX}-${action.action.parameters.toY}`;
       animationReservedTiles.add(fromKey);
       animationReservedTiles.add(toKey);
-      
+
       animateMove(action, duration, () => {
         // Clear reserved tiles when animation completes
         animationReservedTiles.delete(fromKey);
         animationReservedTiles.delete(toKey);
+        callback();
+      });
+      break;
+    case 'Convert':
+      currentAnimation = 'Convert';
+      const key = `${action.action.parameters.x}-${action.action.parameters.y}`;
+      animationReservedTiles.add(key);
+      animateConvert(action, duration, () => {
+        animationReservedTiles.delete(key);
         callback();
       });
       break;
@@ -310,13 +320,13 @@ function executeAnimation(action, callback) {
 function getAnimationDuration(type) {
   const durations = {
     'Move': 1200,
-    'Convert': 1000,
+    'Convert': 2000,
     'Reinforce': 800,
     'Construct': 1000,
     'Sanctuary': 1200,
     'Meteor': 1500,
     'Smite': 1000,
-    'Bless': 800,
+    'Bless': 2000,
     'default': 600
   };
   
@@ -494,6 +504,7 @@ function draw() {
   text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
   text(`Draw: ${totalDrawTime}ms | Panels: ${panelsTime}ms`, 10, 530);
   text(`Msg:${msgTime} Info:${infoTime} Ctrl:${controlsTime} Title:${titleTime} Game:${gameTime}`, 10, 550);
+
 }
 
 function drawTitlePanel() {
@@ -631,7 +642,9 @@ function drawGamePanel() {
     
     // Draw animated tiles on top
     if (currentAnimation === 'Move') {
-      drawAnimatedTiles(gameState, cellSize);
+      drawMovingTiles_Move(gameState, cellSize);
+    } else if (currentAnimation === 'Convert') {
+      drawTiles_Convert(gameState, cellSize);
     }
   }
   
@@ -665,8 +678,7 @@ function drawGameGrid() {
       }
       
       // Check if tile is reserved for animation
-      if (animationReservedTiles.has(tileKey) && currentAnimation === 'Move') {
-        // Skip drawing - animateMove will handle this tile
+      if (animationReservedTiles.has(tileKey)) {
         continue;
       }
       
@@ -674,6 +686,8 @@ function drawGameGrid() {
       let screenX = x *(cellSize + LAYOUT.totalWidth * 0.05/16) + LAYOUT.totalWidth * 0.025/16;
       let screenY = y * cellSize + LAYOUT.totalHeight * 0.1/9;
 
+      tileRealLocations.set(tileKey, { x: screenX,  y: screenY });
+      
       //default anim movement
       screenX += Math.sin(frameCount * 0.005 + x + y);
       screenY += Math.cos(frameCount * 0.018 + x + y);
@@ -724,7 +738,7 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   
   // Build and draw borders like draw_border_ascii
   let charsHorizontal = Math.floor(cellSize / charWidth);
-  let charsVertical = Math.floor(cellSize / charHeight);
+  let charsVertical = Math.ceil(cellSize / charHeight);
   
   let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
   let bottomBorder = bl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + br;
@@ -1098,32 +1112,26 @@ function handleGameEnd(data) {
 
 function keyPressed() {
   if (key == 'a'){
-    //set gamestate to test - full 10x10 grid
-    const grid = [];
-    for (let y = 0; y < 10; y++) {
-      const row = [];
-      for (let x = 0; x < 10; x++) {
-        if (x < 5) {
-          row.push({owner:'Faction A', troop_power: Math.floor(Math.random() * 15) + 1, building:'none'});
-        } else {
-          row.push({owner:'Faction B', troop_power: Math.floor(Math.random() * 15) + 1, building:'none'});
-        }
-      }
-      grid.push(row);
-    }
+    //fake a conversion animation for testing
+    animationReservedTiles.add('4-5');
+    const fakeAction = {
+        action: {
+          type: 'Convert',
+          parameters: { x:4, y:5 }
+        },
+        changes:{
+          success: true,
+          fleeing: {
+            per_tile_amount: 5,
+            tiles: [ { x:5, y:5 } ]
+
+          }
+        } 
+      };
     
-    gameState = {
-      grid: grid,
-      factions: {
-        'Faction A': { tiles: 50, resources: { R: 100, F: 50 } },
-        'Faction B': { tiles: 50, resources: { R: 100, F: 50 } }
-      },
-      gameStatus: 'active'
-    };
-    animationQueue.push({
-      action: { type: 'Move', parameters: { fromX: 4, fromY: 5, targetX: 5, targetY: 5, troops: 5 } }
-    });
+    animationQueue.push(fakeAction);
     processAnimationQueue();
+
   }
 }
 
@@ -1139,3 +1147,5 @@ window.draw = draw;
 window.preload = preload;
 window.mousePressed = mousePressed;
 window.keyPressed = keyPressed;
+window.tileRealLocations = tileRealLocations;
+window.agents_color_map = agents_color_map;

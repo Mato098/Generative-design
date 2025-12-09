@@ -123,7 +123,7 @@ export class ActionValidator {
       return { valid: false, error: 'Must have adjacent tile to convert from' };
     }
     
-    // Use Faith for conversion (3F cost, increased since no Influence)
+    // Use Faith for conversion (3F cost)
     if (!faction.canAfford({ F: 3 })) {
       return { valid: false, error: 'Insufficient resources (need 3F)' };
     }

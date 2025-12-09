@@ -2,6 +2,7 @@ import { GameState } from './GameState.js';
 import { ActionValidator } from './ActionValidator.js';
 import { AIAgent } from '../ai/AIAgent.js';
 import { PersonalityEvolver } from '../ai/PersonalityEvolver.js';
+import { evalAttackOutcome, isAttack } from '../../public/CombatUtils.js';
 
 export class GameEngine {
   constructor() {
@@ -68,11 +69,16 @@ export class GameEngine {
   }
 
   async processNextTurn() {
-    if (this.isProcessingTurn || this.isPaused) return;
+    if (this.isProcessingTurn || this.isPaused) {
+      console.log(`⏸️ Skipping processNextTurn: isProcessingTurn=${this.isProcessingTurn}, isPaused=${this.isPaused}`);
+      return;
+    }
     this.isProcessingTurn = true;
     
     try {
       const currentPlayerName = this.gameState.getCurrentPlayerName();
+      console.log(`🎯 Processing turn for: ${currentPlayerName} (Turn ${this.gameState.turnNumber}, Player Index ${this.gameState.currentPlayerIndex})`);
+      console.log(`📊 Player order:`, this.gameState.playerOrder);
       
       // Apply passive income at start of faction turn
       if (this.gameState.currentPlayerIndex === 0) {
@@ -106,6 +112,9 @@ export class GameEngine {
       // End current player's turn
       currentFaction.endTurn();
       
+      // Move to next player BEFORE animation check
+      this.gameState.nextPlayer();
+
       // Broadcast executed actions for visualization
       this.isWaitingForAnimation = true;
       this.broadcastToClients({
@@ -121,17 +130,24 @@ export class GameEngine {
       if (executedActions.length === 0) {
         console.log('⏭️ No actions to animate, continuing immediately');
         this.isWaitingForAnimation = false;
+        
+        // Check victory conditions
+        const victory = this.gameState.checkVictoryConditions();
+        if (victory) {
+          this.gameState.gameStatus = 'finished';
+          this.broadcastToClients({
+            type: 'gameEnded',
+            data: victory
+          });
+          return;
+        }
+        
         setTimeout(() => {
           this.isProcessingTurn = false;
           this.processNextTurn();
         }, 500);
         return;
-      }
-      
-      // Move to next player
-      this.gameState.nextPlayer();
-      
-      // Check victory conditions
+      }      // Check victory conditions
       const victory = this.gameState.checkVictoryConditions();
       if (victory) {
         this.gameState.gameStatus = 'finished';
@@ -175,12 +191,14 @@ export class GameEngine {
       const decisions = await aiAgent.getTurnActions(context, abortSignal);
       
       const executedActions = [];
+      const actionResults = [];
       
-      // Process all actions
+      // Process all actions and collect results for AI feedback
       if (decisions.actions && Array.isArray(decisions.actions)) {
         console.log(`📋 ${decisions.actions.length} actions:`);
         for (const action of decisions.actions) {
           const result = await this.executeAction(action, factionName);
+          actionResults.push(result); // Store all results for feedback
           if (result.success) {
             executedActions.push(result);
             console.log(`✅ ${action.type}: ${action.blurb}`);
@@ -189,6 +207,9 @@ export class GameEngine {
           }
         }
       }
+      
+      // Provide feedback to AI about action results
+      aiAgent.addActionFeedback(actionResults);
       
       // Handle ruler's message
       if (decisions.message) {
@@ -215,6 +236,14 @@ export class GameEngine {
 
   // Called when client finishes animating actions
   async continueAfterAnimation() {
+    console.log(`🎬 continueAfterAnimation called: isWaitingForAnimation=${this.isWaitingForAnimation}, isProcessingTurn=${this.isProcessingTurn}`);
+    
+    // Only proceed if we were actually waiting for animation
+    if (!this.isWaitingForAnimation) {
+      console.log(`⚠️ Ignoring continueAfterAnimation - not waiting for animation`);
+      return;
+    }
+    
     this.isWaitingForAnimation = false;
     
     // Continue game loop after brief delay (personality evolution may still be running)
@@ -226,6 +255,7 @@ export class GameEngine {
         this.isProcessingTurn = false;
         this.processNextTurn();
       } else {
+        console.log(`🎬 Normal animation completion, calling processNextTurn`);
         this.isProcessingTurn = false;
         this.processNextTurn();
       }
@@ -338,6 +368,11 @@ export class GameEngine {
     };
   }
 
+  // Use shared combat utility instead of duplicating logic
+  eval_attack_outcome(attackPower, defendTile, sourceTile) {
+    return evalAttackOutcome(attackPower, defendTile, sourceTile);
+  }
+
   applyMoveAction(action, playerName) {
     const { fromX, fromY, targetX, targetY, troops } = action.parameters;
     const sourceTile = this.gameState.getTile(fromX, fromY);
@@ -366,35 +401,12 @@ export class GameEngine {
       
       const attackPower = troopsToMove;
       
-      // Defense calculation: troops + terrain/building bonuses
-      const baseDefense = targetTile.troop_power;
-      const hillBonus = targetTile.type === 'hill' ? 2 : 0;
-      const sacredBonus = targetTile.type === 'sacred' ? 3 : 0;
-      const fortressBonus = targetTile.building === 'Fortress' ? 5 : 0;
-      const towerBonus = targetTile.building === 'Tower' ? 2 : 0;
-      const defensePower = baseDefense + hillBonus + sacredBonus + fortressBonus + towerBonus;
+      const { victorystatus, newSourceTroops, newTargetTroops } = this.eval_attack_outcome(attackPower, targetTile, sourceTile);
       
-      console.log(`   💪 Attack power: ${attackPower.toFixed(2)} vs Defense: ${defensePower.toFixed(2)}`);
-      
-      // Add combat randomness - roll dice for both sides
-      const attackRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
-      const defenseRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
-      
-      const finalAttackPower = attackPower * attackRoll;
-      const finalDefensePower = defensePower * defenseRoll;
-      
-      console.log(`   🎲 Combat rolls: Attack ${attackRoll.toFixed(2)} Defense ${defenseRoll.toFixed(2)}`);
-      console.log(`   ⚡ Final: ${finalAttackPower.toFixed(2)} vs ${finalDefensePower.toFixed(2)}`);
-      
-      // Remove attacking troops from source
-      const strengthRatio = troopsToMove / sourceTile.troop_power;
-      
-      if (finalAttackPower > finalDefensePower) {
-        // Victory
-        const excessPower = finalAttackPower - finalDefensePower;
-        sourceTile.troop_power *= (1 - strengthRatio);
+      if (victorystatus === 'victory') {
+        sourceTile.troop_power = newSourceTroops;
         targetTile.owner = playerName;
-        targetTile.troop_power = Math.min(excessPower, 50);
+        targetTile.troop_power = newTargetTroops;
         
         console.log(`   🎉 ATTACK SUCCESSFUL!`);
         
@@ -404,12 +416,18 @@ export class GameEngine {
           from: { x: fromX, y: fromY },
           target: { x: targetX, y: targetY },
           newOwner: playerName,
+          troopsMoved: attackPower,
+          battleResults: {
+            victorystatus: 'victory',
+            sourceAfter: newSourceTroops,
+            targetAfter: newTargetTroops
+          },
           blurb: action.parameters.blurb || 'Territory conquered!'
         };
       } else {
         // Defeat
-        sourceTile.troop_power *= (1 - strengthRatio * 0.75);
-        targetTile.troop_power *= 0.75;
+        sourceTile.troop_power = newSourceTroops;
+        targetTile.troop_power = newTargetTroops;
         
         console.log(`   💥 ATTACK REPELLED!`);
 
@@ -418,6 +436,12 @@ export class GameEngine {
           type: 'assault_failed',
           from: { x: fromX, y: fromY },
           target: { x: targetX, y: targetY },
+          troopsMoved: attackPower,
+          battleResults: {
+            victorystatus: 'defeat',
+            sourceAfter: newSourceTroops,
+            targetAfter: newTargetTroops
+          },
           blurb: action.parameters.blurb || 'Attack repelled!'
         };
       }
@@ -436,12 +460,21 @@ export class GameEngine {
     const success = Math.random() < conversionChance;
     
     if (success && tile.owner !== playerName) {
+      //troops on that tile must flee to adjacent tiles or be lost
+      let adjacentTiles = this.gameState.getAdjacentTiles(tile.x, tile.y);
+      adjacentTiles = adjacentTiles.filter(t => t.owner === tile.owner);
+      const fleeingTroops = tile.troop_power;
+      let per_tile_flee_amount = fleeingTroops / adjacentTiles.length;
+      for (const adjTile of adjacentTiles) {
+        adjTile.troop_power += per_tile_flee_amount;
+      }
+      tile.troop_power = 0;
       tile.owner = playerName;
-      tile.troop_power = 3; // Converted tiles have minimal troops
-      
+     
       return {
         type: 'conversion_success',
         tile: { x: tile.x, y: tile.y },
+        fleeing: { per_tile_amount: per_tile_flee_amount, tiles: adjacentTiles.map(t => ({ x: t.x, y: t.y })) },
         newOwner: playerName,
         success: true
       };
