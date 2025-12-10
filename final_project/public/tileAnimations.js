@@ -3,11 +3,11 @@ let animationStartTime = 0;
 let currentAction = null;
 let animationDuration = 0;
 
-export function animateMove(actionData, duration, callback) {
+export function animateUniversal(actionData, duration, callback) {
   animationStartTime = Date.now();
   currentAction = {
     action: actionData.action,
-    actionResult: actionData, // Store the full action result for battle effects
+    actionResult: actionData, // Store the full action result
     callback: callback
   };
   animationDuration = duration;
@@ -40,10 +40,25 @@ function moveResolutionEffects(gameState, actionResult) {
   regenerateTileCache(actionResult);
 }
 
+function constructResolutionEffects(gameState, actionResult) {
+  if (actionResult.success) {
+    const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
+    tile.building = actionResult.changes.newBuilding;
+  }
+}
+
 function convertResolutionEffects(gameState, actionResult) {
   if (actionResult.success) {
     const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
     tile.owner = actionResult.changes.newOwner;
+  }
+}
+
+function blessResolutionEffects(gameState, actionResult) {
+  if (actionResult.success) {
+    const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
+    tile.building = 'Shrine';
+    if (tile.owner !== 'Neutral') gameState.factions[tile.owner].resources.F += 5;
   }
 }
 
@@ -207,26 +222,60 @@ export function getAnimationInfo() {
   };
 }
 
-export function animateConvert(actionData, duration, callback) {
-  animationStartTime = Date.now();
-  currentAction = {
-    action: actionData.action,
-    actionResult: actionData, // Store the full action result
-    callback: callback
-  };
-  animationDuration = duration;
-  
-  console.log("CONVERT ANIMATION DRAWING");
-  console.log(currentAction);
-}
-
-export function drawTiles_Convert(gameState, cellSize) {
+export function drawTilesBless(gameState, cellSize) {
   if (!currentAction) return;
   const elapsed = Date.now() - animationStartTime;
   const progress = Math.min(elapsed / animationDuration, 1.0);// 0.0 to 1.0
   const params = currentAction.action.parameters;
   const X = params.x;
   const Y = params.y;
+
+  let tileKey = `${X}-${Y}`;
+  let tileImage = window.tileCache.get(tileKey);
+  
+  if (progress >= 1.0) {
+    // Animation finished - trigger callback and clean up
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+
+    blessResolutionEffects(gameState, currentAction.actionResult);
+
+    currentAction = null;
+    
+    // Call completion callback
+    if (callback) {
+      callback();
+    }
+    return; // Don't draw anything, animation is done
+  }    
+    image(tileImage, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+
+    let lightDropDown = map(progress, 0, 0.1, 0, 1, true);
+
+    let blessGradient = createLinearGradient(-PI/2, cellSize);
+    blessGradient.colors(0, "#ffeb3791",  1, "#fff0680a");
+    fillGradient(blessGradient);
+    let tileLocation = window.tileRealLocations.get(tileKey);
+    beginShape();
+    vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 0.05, lightDropDown), (tileLocation.y + cellSize * 0.15) * lightDropDown);
+    vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 0.05, lightDropDown), (tileLocation.y + cellSize * 0.85) * lightDropDown);
+    vertex((tileLocation.x + cellSize * 0.95), (tileLocation.y + cellSize * 0.85) * lightDropDown);
+    vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 4, lightDropDown), -cellSize * 3);
+    vertex(tileLocation.x + cellSize * 1, -cellSize * 3);
+    endShape(CLOSE);
+  
+}
+
+export function drawTilesConvert(gameState, cellSize) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);// 0.0 to 1.0
+  const params = currentAction.action.parameters;
+  const X = params.x;
+  const Y = params.y;
+  console.log("DRAW CONVERT ANIMATION", X, Y, progress);
+  console.log(currentAction.actionResult);
 
   let tileKey = `${X}-${Y}`;
   let tileImage = window.tileCache.get(tileKey);
@@ -247,14 +296,12 @@ export function drawTiles_Convert(gameState, cellSize) {
     }
     return; // Don't draw anything, animation is done
   }
-
+  
   if (currentAction.actionResult.changes.success){
-    //fleeing units
-
+    
     let fleeing_amount_per_tile = round(currentAction.actionResult.changes.fleeing.per_tile_amount, 1);
     let fleeToTiles = currentAction.actionResult.changes.fleeing.tiles;//{ x, y }[]
 
-    
     image(tileImage, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
 
     // Draw fleeing troops
@@ -271,24 +318,90 @@ export function drawTiles_Convert(gameState, cellSize) {
 
       text(fleeing_amount_per_tile, currentX + cellSize * 0.5 - 2, currentY + cellSize * 0.5);
     }
-    let lightDropDown = map(progress, 0, 0.1, 0, 1, true);
-
-    let conversionGradient_success = createLinearGradient(-PI/2, cellSize);//BLESS really
-    conversionGradient_success.colors(0, "#ffeb3791",  1, "#fff0680a");
-    fillGradient(conversionGradient_success);
-    let tileLocation = window.tileRealLocations.get(tileKey);
-    beginShape();
-    vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 0.05, lightDropDown), (tileLocation.y + cellSize * 0.15) * lightDropDown);
-    vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 0.05, lightDropDown), (tileLocation.y + cellSize * 0.85) * lightDropDown);
-    vertex((tileLocation.x + cellSize * 0.95), (tileLocation.y + cellSize * 0.85) * lightDropDown);
-    vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 4, lightDropDown), -cellSize * 3);
-    vertex(tileLocation.x + cellSize * 1, -cellSize * 3);
-    endShape(CLOSE);
-    
-  }else{
-    // Failed conversion - maybe a red X or shake effect
-    fill(255, 0, 0, 150 * (1.0 - progress)); // Red color fading out
-    textSize(cellSize * 0.5);
-    text('X', X * cellSize + cellSize / 2 - 10, Y * cellSize + cellSize / 2 + 10);
   }
+
+  let tileLocation = window.tileRealLocations.get(tileKey);
+
+  noStroke();
+
+  let dropdownSpeed = 0.05;
+  let lightDropDown = map(progress, 0, dropdownSpeed, 0, 1, true);
+  if (progress > 1 - dropdownSpeed){
+    lightDropDown = map(progress, 1 - dropdownSpeed, 1.0, 1, 0, true);
+  }
+  let playerName = currentAction.actionResult.beforeState.currentPlayer;
+  let col = color(window.agents_color_map[playerName.slice(-1)])
+  col.setAlpha(150);
+  if (!currentAction.actionResult.changes.success) col = lerpColor(col, color("#616161a8"), progress);
+  let colAlpha = col;
+  colAlpha.setAlpha(1);
+
+  //REDO rect 'towers' on borders of tile raise and fall. possibly w gradients
+  
+  let convertGradient = createLinearGradient(-PI/2, cellSize);
+  convertGradient.colors(0, col, 1, colAlpha);
+  fillGradient(convertGradient);
+  push();
+  translate(tileLocation.x + cellSize * 0.05, (tileLocation.y + cellSize * 0.85));
+
+  beginShape();
+  vertex(0, cellSize * -1);
+  vertex(0, 0);
+  vertex(cellSize * 0.8, 0);
+
+  vertex(lerp(cellSize * 0.8, tileLocation.x + cellSize * 2.85, lightDropDown), lerp(0, cellSize * -2, lightDropDown));
+  vertex(lerp(0, cellSize * 0.50, lightDropDown), lerp((cellSize * -1 ,tileLocation.y + cellSize * -2, lightDropDown))); 
+  endShape(CLOSE);
+  pop();
+  
+  
+  
+}
+
+export function drawTilesConstruct(gameState, cellSize, font_size) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);
+  const params = currentAction.action.parameters;
+  const X = params.x;
+  const Y = params.y;
+  let tileKey = `${X}-${Y}`;
+  let tileImage = window.tileCache.get(tileKey);
+  if (progress >= 1.0) {
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+    constructResolutionEffects(gameState, currentAction.actionResult);
+    currentAction = null;
+    if (callback) {
+      callback();
+    }
+    return;
+  }
+  image(tileImage, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+  //add letters of the building, new letter is always bigger and white
+
+  let col = window.agents_color_map[gameState.grid[Y][X].owner.slice(-1)] || '#888888ff';
+  let bleedCol = window.bleedLerpColor(color(col), 0.5);
+
+  let buildingName = currentAction.action.parameters.building;
+  textAlign(LEFT, CENTER);
+  const screentextStartX = X * cellSize + LAYOUT.totalWidth * 0.125/16 + cellSize / 2 - (textWidth(buildingName) / 2);
+  const screenStartY = Y * cellSize + LAYOUT.totalHeight * 0.1/9 + cellSize * 0.75;
+
+  let newLetterIdx = floor(map(progress, 0, 0.8, 0, 1, true) * buildingName.length) - 1;
+  let newLetter = buildingName.charAt(newLetterIdx);
+  let lettersAlreadyDrawn = buildingName.substring(0, newLetterIdx);
+
+  fill(col);
+  stroke(bleedCol);
+  strokeWeight(2);
+  textSize(font_size);
+  text(lettersAlreadyDrawn, screentextStartX, screenStartY);
+  
+  fill(255, 255, 255);
+  let drawnWidth = textWidth(lettersAlreadyDrawn);
+  textSize(font_size * 1.5);  
+  text(newLetter, screentextStartX + drawnWidth + 2, screenStartY);
+  textSize(font_size);
 }

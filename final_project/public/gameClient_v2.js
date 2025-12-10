@@ -30,13 +30,16 @@ let textBoxActive = false;
 // Panel caching for performance
 let messagesPanelCache = null;
 let messagesPanelCacheInvalid = true;
+let titleCache = null;
 
 let framesCol = '#2bff00ff';
 let framesColBleed = '#315529ea';
+let textCol = '#ffffffff';
+let textColBleed = '#808080ea';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
-import { animateMove, animateConvert, drawTiles_Convert, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo } from './tileAnimations.js';
+import { drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo, drawTilesBless, animateUniversal} from './tileAnimations.js';
 
 // =============================================================================
 // LAYOUT DIMENSIONS (16:9 format)
@@ -100,7 +103,7 @@ let buttons = [
   ];
 let pauseButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.1, y: LAYOUT.rightPanel.controlsSection.height * 0.25, w: 80, h: 30 };
 let startButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.4, y: LAYOUT.rightPanel.controlsSection.height * 0.25, w: LAYOUT.rightPanel.controlsSection.width * 0.515, h: 30 };
-let textBoxLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.1, y: LAYOUT.rightPanel.controlsSection.height * 0.35, w: LAYOUT.rightPanel.controlsSection.width * 0.8, h: 30 };
+let textBoxLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.095, y: LAYOUT.rightPanel.controlsSection.height * 0.33, w: LAYOUT.rightPanel.controlsSection.width * 0.84, h: 50 };
 
 let lines_font;
 let text_font;
@@ -295,7 +298,7 @@ function executeAnimation(action, callback) {
       animationReservedTiles.add(fromKey);
       animationReservedTiles.add(toKey);
 
-      animateMove(action, duration, () => {
+      animateUniversal(action, duration, () => {
         // Clear reserved tiles when animation completes
         animationReservedTiles.delete(fromKey);
         animationReservedTiles.delete(toKey);
@@ -306,8 +309,27 @@ function executeAnimation(action, callback) {
       currentAnimation = 'Convert';
       const key = `${action.action.parameters.x}-${action.action.parameters.y}`;
       animationReservedTiles.add(key);
-      animateConvert(action, duration, () => {
+      animateUniversal(action, duration, () => {
         animationReservedTiles.delete(key);
+        callback();
+      });
+      break;
+
+    case 'Bless':
+      currentAnimation = 'Bless';
+      const blessKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
+      animationReservedTiles.add(blessKey);
+      animateUniversal(action, duration, () => {
+        animationReservedTiles.delete(blessKey);
+        callback();
+      });
+      break;
+    case 'Construct':
+      currentAnimation = 'Construct';
+      const constructKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
+      animationReservedTiles.add(constructKey);
+      animateUniversal(action, duration, () => {
+        animationReservedTiles.delete(constructKey);
         callback();
       });
       break;
@@ -323,13 +345,13 @@ function getAnimationDuration(type) {
   const durations = {
     'Move': 1200,
     'Convert': 2000,
-    'Reinforce': 800,
-    'Construct': 1000,
+    'Reinforce': 2000,
+    'Construct': 3000,
     'Sanctuary': 1200,
     'Meteor': 1500,
     'Smite': 1000,
     'Bless': 2000,
-    'default': 600
+    'default': 1000
   };
   
   return durations[type] || durations.default;
@@ -371,7 +393,11 @@ function draw_panel_bg(x, y, w, h, bg_alpha = 1){
        col = lerpColor(color('#000000ff'), color('#080c08ff'), bg_alpha);
    }
     fill(col);
-    rect(x, y + i * horiz_slices_size, w, horiz_slices_size);
+    if (y + i * horiz_slices_size + horiz_slices_size > y + h){//out of bounds
+      rect(x, y + i * horiz_slices_size, w, (y + h) - (y + i * horiz_slices_size));
+    } else {
+      rect(x, y + i * horiz_slices_size, w, horiz_slices_size);
+    }
   }
 }
 
@@ -455,7 +481,7 @@ function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = t
 // =============================================================================
 function draw() {
   const drawStart = performance.now();
-  background('#572929ff');
+  background('#000000ff');
   
   if (!gameState) {
     drawLoadingScreen();
@@ -487,7 +513,7 @@ function draw() {
   
   const panelsEnd = performance.now();
   
-  fill(255);
+  fill(textCol);
 
   if (isAnimating) {
     const animInfo = getAnimationInfo();
@@ -515,14 +541,20 @@ function draw() {
 
 function drawTitlePanel() {
 
-  draw_panel_bg(LAYOUT.titlePanel.x, LAYOUT.titlePanel.y, LAYOUT.titlePanel.width, LAYOUT.titlePanel.height);
-  draw_border_ascii(LAYOUT.titlePanel.x, LAYOUT.titlePanel.y, LAYOUT.titlePanel.width, LAYOUT.titlePanel.height);
-  fill(255);
-  textAlign(CENTER, CENTER);
-  strokeWeight(2);
-  stroke(90);
-  text('God terminal   v1.04 (insider build)  (c) Heaven corp.', LAYOUT.titlePanel.x + LAYOUT.titlePanel.width / 2, LAYOUT.titlePanel.y + 30);
-  textAlign(LEFT);
+  if (!titleCache){
+    titleCache = createGraphics(LAYOUT.titlePanel.width, LAYOUT.titlePanel.height);
+    render_ascii_to_buffer(titleCache, 0, 0, LAYOUT.titlePanel.width, LAYOUT.titlePanel.height, '=I****', null, true, font_size, 1);
+    titleCache.textFont(text_font);
+    titleCache.textSize(font_size);
+    titleCache.textAlign(CENTER, CENTER);
+    titleCache.strokeWeight(2);
+    titleCache.stroke(textColBleed);
+    titleCache.fill(textCol);
+    titleCache.text('God terminal   v1.04 (insider build)  (c) Heaven corp.', LAYOUT.titlePanel.width / 2, 25);
+  }
+
+  image(titleCache, LAYOUT.titlePanel.x, LAYOUT.titlePanel.y);
+
 }
 
 function drawMessagesPanel() {
@@ -536,6 +568,94 @@ function drawMessagesPanel() {
   }
   image(messagesPanelCache, panel.x, panel.y);
 }
+
+function render_ascii_to_buffer(buffer, x, y, w, h, style = '=I****', color = null, do_bg = true, size = font_size, dim_bg = 1){
+    let horiz = style[0];
+    let vert = style[1];
+    let tl = style[2];
+    let tr = style[3];
+    let bl = style[4];
+    let br = style[5];
+
+    buffer.textSize(size);
+    buffer.textFont(text_font); 
+    buffer.push();
+    if (do_bg){
+      let horiz_slices_size = 30;
+      let slices_count = h / horiz_slices_size;
+      buffer.noStroke();
+      let col;
+      for (let i = 0; i < slices_count; i++){
+      if (i % 2 == 0){
+          col = buffer.color('#000000ff');
+      } else {
+          col = buffer.lerpColor(buffer.color('#000000ff'), buffer.color('#080c08ff'), dim_bg);
+      }
+        buffer.fill(col);
+        if (y + i * horiz_slices_size + horiz_slices_size > y + h){//out of bounds
+          buffer.rect(x, y + i * horiz_slices_size, w, (y + h) - (y + i * horiz_slices_size));
+        } else {
+          buffer.rect(x, y + i * horiz_slices_size, w, horiz_slices_size);
+        }
+      }
+    }
+
+    buffer.strokeWeight(2);
+    buffer.stroke(framesColBleed);
+
+    // Calculate character dimensions more precisely
+    let charWidth = buffer.textWidth(horiz);
+    let charHeight = buffer.textAscent() + buffer.textDescent();
+    let charsHorizontal = Math.floor(w / charWidth);
+    let charsVertical = Math.floor(h / charHeight);
+    
+    // Adjust spacing for better alignment
+    let horizontalOffset = (w - (charsHorizontal * charWidth)) / 2;
+    let verticalOffset = (h - (charsVertical * charHeight)) / 2;
+    
+    buffer.fill(color || framesCol);
+    buffer.textAlign(LEFT, TOP);
+
+    // Build horizontal border strings once
+    let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
+    let bottomBorder = bl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + br;
+    
+    // Draw top and bottom borders with single text calls
+    buffer.text(topBorder, x + horizontalOffset, y + verticalOffset);
+    buffer.text(bottomBorder, x + horizontalOffset, y + h - charHeight - verticalOffset);
+
+    // Draw left and right vertical borders efficiently
+    let leftX = x + horizontalOffset;
+    let rightX = x + w - charWidth - horizontalOffset;
+    let startY = y + verticalOffset + charHeight;
+    let endY = y + h - charHeight - verticalOffset;
+    
+    // Batch vertical characters into fewer calls
+    let verticalCount = Math.floor((endY - startY) / (charHeight - 1));
+    if (verticalCount > 0) {
+        let leftVertical = vert.repeat(verticalCount);
+        let rightVertical = vert.repeat(verticalCount);
+        
+        // Draw left border as one string
+        buffer.push();
+        buffer.translate(leftX, startY);
+        for (let i = 0; i < verticalCount; i++) {
+            buffer.text(vert, 0, i * (charHeight - 1));
+        }
+        buffer.pop();
+        
+        // Draw right border as one string  
+        buffer.push();
+        buffer.translate(rightX, startY);
+        for (let i = 0; i < verticalCount; i++) {
+            buffer.text(vert, 0, i * (charHeight - 1));
+        }
+        buffer.pop();
+    }
+    
+    buffer.textAlign(LEFT, BASELINE);
+    buffer.pop();
+  }
 
 function renderMessagesPanelToBuffer(buffer, panel) {
   // Clear buffer with transparent background
@@ -596,11 +716,12 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   }
   
   // Text content
-  buffer.noStroke();
   buffer.textAlign(LEFT, BASELINE);
   
   // White text first
-  buffer.fill(255);
+  buffer.fill(textCol);
+  buffer.strokeWeight(2);
+  buffer.stroke(textColBleed);
   buffer.text('Action Log:', 20, 30);
   
   let y = 50;
@@ -634,6 +755,22 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   }
 }
 
+function renderTitlePanelToBuffer(buffer, panel) {
+  // Clear buffer with transparent background
+  buffer.clear();
+
+  // Draw background stripes
+  let horiz_slices_size = 30;
+  let slices_count = panel.height / horiz_slices_size;
+  buffer.noStroke();
+  for (let i = 0; i < slices_count; i++) {
+    let col = i % 2 == 0 ? buffer.color(0, 0, 0) : buffer.color(8, 12, 8);
+    buffer.fill(col);
+    buffer.rect(0, i * horiz_slices_size, panel.width, horiz_slices_size);
+  }
+}
+
+
 
 function drawGamePanel() {
   // Center: Main game grid (9:9)
@@ -649,12 +786,16 @@ function drawGamePanel() {
     const cellSize = (LAYOUT.gamePanel.height * 0.95) / gridSize;
     
     drawGameGrid();
-    
+
     // Draw animated tiles on top
     if (currentAnimation === 'Move') {
       drawMovingTiles_Move(gameState, cellSize);
     } else if (currentAnimation === 'Convert') {
-      drawTiles_Convert(gameState, cellSize);
+      drawTilesConvert(gameState, cellSize);
+    }else if (currentAnimation === 'Bless'){
+      drawTilesBless(gameState, cellSize);
+    }else if (currentAnimation === 'Construct'){
+      drawTilesConstruct(gameState, cellSize, font_size * 0.75);
     }
   }
   
@@ -696,7 +837,7 @@ function drawGameGrid() {
       let screenX = x *(cellSize + LAYOUT.totalWidth * 0.05/16) + LAYOUT.totalWidth * 0.025/16;
       let screenY = y * cellSize + LAYOUT.totalHeight * 0.1/9;
 
-      tileRealLocations.set(tileKey, { x: screenX,  y: screenY });
+      tileRealLocations.set(tileKey, { x: screenX,  y: screenY, w: cellSize, h: cellSize });
       
       //default anim movement
       screenX += Math.sin(frameCount * 0.005 + x + y);
@@ -725,7 +866,7 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   // Background characters - optimized batching like drawTile()
   buffer.fill('#2c231aff');
   buffer.strokeWeight(3);
-  buffer.stroke(lerpColor(buffer.color('#2c231aff'), buffer.color('#000000af'), 0.7));
+  buffer.stroke(bleedLerpColor(buffer.color('#2c231aff')));
   const charWidth = buffer.textWidth(bg_char);
   const charHeight = buffer.textAscent();
   const charsPerRow = Math.floor((cellSize - charWidth) / charWidth);
@@ -746,7 +887,7 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   
   buffer.fill(agent_color);
   buffer.strokeWeight(3);
-  buffer.stroke(lerpColor(color(agent_color), color('#000000af'), 0.7));
+  buffer.stroke(bleedLerpColor(color(agent_color)));
   buffer.textAlign(LEFT, TOP);
   buffer.textSize(font_size * 0.75);
   
@@ -836,13 +977,19 @@ function drawInfoPanel() {
   translate(panel.x, panel.y);
   
   // TODO: Draw faction stats, resources, turn info
-  fill(255);
+  fill(textCol);
+  strokeWeight(2);
+  stroke(textColBleed);
   text('Faction Info', 20, 30);
   
   if (gameState && gameState.factions) {
     let y = 60;
     for (const [name, faction] of Object.entries(gameState.factions)) {
+      fill(agents_color_map[name[name.length -1]] || '#b4b4b4ff');
+      stroke(bleedLerpColor(color(agents_color_map[name[name.length -1]] || '#b4b4b4ff')));
       text(`${name}: ${faction.tiles} tiles`, 20, y);
+      fill(textCol);
+      stroke(textColBleed);
       text(`R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)}`, 20, y + 20);
       y += 50;
     }
@@ -882,7 +1029,9 @@ function drawControlsPanel() {
     const startButton = startButtonLayout;
     fill(gameState ? 60 : 100);
     rect(startButton.x, startButton.y, startButton.w, startButton.h);
-    fill(255);
+    fill(textCol);
+    strokeWeight(2);
+    stroke(textColBleed);
     textAlign(CENTER, CENTER);
     text('Start Game', startButton.x + startButton.w/2, startButton.y + startButton.h/2);
     textAlign(LEFT);
@@ -891,55 +1040,89 @@ function drawControlsPanel() {
   pop();
 }
 
-function drawTextBox() {
-  let {x: boxX, y: boxY, w: boxW, h: boxH} = textBoxLayout;
-  if (textWidth(textBoxContent) > boxW - 10) {
-    boxH *= ceil(textWidth(textBoxContent) / (boxW - 10));
-  } 
+// Text wrapping utilities - consistent across all functions
+function getTextBoxMetrics() {
+  const {x: boxX, y: boxY, w: boxW, h: boxH} = textBoxLayout;
+  const padding = 15; // Consistent padding
+  const usableWidth = boxW - (padding * 2);
+  const charWidth = textWidth('W'); // Use consistent character for width calculation
+  const lineHeight = font_size + 2;
+  const charsPerLine = Math.floor(usableWidth / charWidth);
+  const numLines = Math.max(1, Math.ceil(textBoxContent.length / charsPerLine));
+  const calculatedHeight = boxH + (numLines - 1) * lineHeight;
+  
+  return {
+    boxX, boxY, boxW, 
+    boxH: calculatedHeight,
+    padding,
+    usableWidth,
+    charWidth,
+    lineHeight,
+    charsPerLine,
+    numLines
+  };
+}
 
-  // Text box background
+function getSendButtonLayout() {
+  const metrics = getTextBoxMetrics();
+  return {
+    x: metrics.boxX + metrics.boxW - 60,
+    y: metrics.boxY + metrics.boxH + 10,
+    w: 60,
+    h: 40
+  };
+}
+
+function drawTextBox() {
+  const metrics = getTextBoxMetrics();
+
   if (textBoxActive) {
-    fill(50, 50, 80); // Darker when active
-    stroke(100, 150, 255); // Blue border when active
+    draw_border_ascii(metrics.boxX, metrics.boxY, metrics.boxW, metrics.boxH, '=I****', framesCol, true, font_size, 0.5);
   } else {
-    fill(30);
-    stroke(100);
+    draw_border_ascii(metrics.boxX, metrics.boxY, metrics.boxW, metrics.boxH, '=I****', '#23b100ff', true, font_size, 0.5);
+    fill(100);
+    noStroke();
+    textAlign(LEFT, TOP);
+    text('Messages to mortals go here', metrics.boxX + metrics.padding, metrics.boxY + metrics.padding);
   }
   strokeWeight(2);
-  rect(boxX, boxY, boxW, boxH);
   
-  // Text content
+  // Text content - wrap consistently
   fill(255);
-  textAlign(LEFT, CENTER);
-  //textSize(14);
-  let numCharsFit = floor((boxW - 10) / textWidth('W'));
-  for (let i = 0; i < ceil(textWidth(textBoxContent) / (boxW - 10)); i++) {
-    text(textBoxContent.substring(i * numCharsFit, (i + 1) * numCharsFit), boxX + 10, boxY + 15 + i * (font_size + 2));
+  textAlign(LEFT, TOP);
+  
+  for (let line = 0; line < metrics.numLines; line++) {
+    const startChar = line * metrics.charsPerLine;
+    const endChar = Math.min(startChar + metrics.charsPerLine, textBoxContent.length);
+    const lineText = textBoxContent.substring(startChar, endChar);
+    const textX = metrics.boxX + metrics.padding;
+    const textY = metrics.boxY + metrics.padding + (line * metrics.lineHeight);
+    text(lineText, textX, textY);
   }
   
-  // Cursor when active
+  // Cursor when active - position consistently with text wrapping
   if (textBoxActive && frameCount % 60 < 30) {
-    const textW = textWidth(textBoxContent);
+    const cursorPos = textBoxContent.length;
+    const cursorLine = Math.floor(cursorPos / metrics.charsPerLine);
+    const cursorCol = cursorPos % metrics.charsPerLine;
+    const cursorX = metrics.boxX + metrics.padding + (cursorCol * metrics.charWidth);
+    const cursorY = metrics.boxY + metrics.padding + (cursorLine * metrics.lineHeight);
+    
     fill(framesCol);
-    text('I', (textBoxContent.length % numCharsFit) * textWidth('W') + boxX + 10, boxY + 15 +  (font_size + 2) * floor(textBoxContent.length / numCharsFit));
+    stroke(framesColBleed);
+    text('I', cursorX, cursorY);
   }
   
   // Send button
-  const buttonX = boxX + boxW + 10;
-  const buttonY = boxY;
-  const buttonW = 60;
-  const buttonH = boxH;
+  const {x: buttonX, y: buttonY, w: buttonW, h: buttonH} = getSendButtonLayout();
   
   if (textBoxContent.trim().length > 0) {
-    fill(60, 120, 60); // Green when text is available
-  } else {
-    fill(40); // Gray when disabled
-  }
-  rect(buttonX, buttonY, buttonW, buttonH);
+    draw_border_ascii(buttonX, buttonY, buttonW, buttonH+10, '=I****', '#007b00ff', true, font_size, 0.5);
   
-  fill(255);
-  textAlign(CENTER, CENTER);
-  text("Send", buttonX + buttonW/2, buttonY + buttonH/2);
+    fill(255);
+    textAlign(CENTER, CENTER);
+    text("Send", buttonX + buttonW/2, buttonY + buttonH/2);
+  } 
   
   // Reset text alignment
   textAlign(LEFT);
@@ -1012,18 +1195,16 @@ function getPanelClick(screenX, screenY) {
 
 function handleControlsClick(x, y) {
   // Check text box click
-  const {x: textBoxX, y: textBoxY, w: textBoxW, h: textBoxH} = textBoxLayout;
-  if (x >= textBoxX && x <= textBoxX + textBoxW && 
-      y >= textBoxY && y <= textBoxY + textBoxH) {
+  const metrics = getTextBoxMetrics();
+
+  if (x >= metrics.boxX && x <= metrics.boxX + metrics.boxW && 
+      y >= metrics.boxY && y <= metrics.boxY + metrics.boxH) {
     textBoxActive = true;
     return;
   }
   
   // Check send button click
-  const sendButtonX = textBoxX + textBoxW + 10;
-  const sendButtonY = textBoxY;
-  const sendButtonW = 60;
-  const sendButtonH = textBoxH;
+  const {x: sendButtonX, y: sendButtonY, w: sendButtonW, h: sendButtonH} = getSendButtonLayout();
   if (x >= sendButtonX && x <= sendButtonX + sendButtonW && 
       y >= sendButtonY && y <= sendButtonY + sendButtonH) {
     sendObserverMessage();
@@ -1066,16 +1247,28 @@ function handleControlsClick(x, y) {
   }
 }
 
+function gameClickToTile(x, y) {
+  for (const [tileKey, pos] of tileRealLocations.entries()) {
+    const w = pos.w;
+    const h = pos.h;
+    if (x >= pos.x && x <= pos.x + w &&
+        y >= pos.y && y <= pos.y + h - 10) {
+      const [tileX, tileY] = tileKey.split('-').map(Number);
+      return { x: tileX, y: tileY };
+    }
+  }
+  return null;
+}
+    
+
 function handleGameClick(x, y) {
   if (!selectedObserverAction) return;
   
-  // Convert game panel coordinates to grid coordinates
-  const cellSize = LAYOUT.gamePanel.width / 10;
-  const gridX = Math.floor(x / cellSize);
-  const gridY = Math.floor(y / cellSize);
+  const tilePos = gameClickToTile(x, y);
+  if (!tilePos) return;
   
-  if (gridX >= 0 && gridX < 10 && gridY >= 0 && gridY < 10) {
-    executeObserverAction(selectedObserverAction, gridX, gridY);
+  if (tilePos.x >= 0 && tilePos.x < 10 && tilePos.y >= 0 && tilePos.y < 10) {
+    executeObserverAction(selectedObserverAction, tilePos.x, tilePos.y);
     selectedObserverAction = null;
   }
 }
@@ -1227,30 +1420,14 @@ function keyPressed() {
     }
     return; // Don't process other keys when text box is active
   }
+}
+
+function bleedLerpColor(col, amount = 0.7) {
+  return lerpColor(col,  color(0, 0, 0, 128), amount);
+}
+
+function mouseMoved() {
   
-  // Original test code
-  if (key == 'a'){
-    //fake a conversion animation for testing
-    animationReservedTiles.add('4-5');
-    const fakeAction = {
-        action: {
-          type: 'Convert',
-          parameters: { x:4, y:5 }
-        },
-        changes:{
-          success: true,
-          fleeing: {
-            per_tile_amount: 5,
-            tiles: [ { x:5, y:5 } ]
-
-          }
-        } 
-      };
-    
-    animationQueue.push(fakeAction);
-    processAnimationQueue();
-
-  }
 }
 
 // =============================================================================
@@ -1264,6 +1441,8 @@ window.setup = setup;
 window.draw = draw;
 window.preload = preload;
 window.mousePressed = mousePressed;
+window.mouseMoved = mouseMoved;
 window.keyPressed = keyPressed;
 window.tileRealLocations = tileRealLocations;
 window.agents_color_map = agents_color_map;
+window.bleedLerpColor = bleedLerpColor;

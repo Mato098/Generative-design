@@ -600,7 +600,7 @@ export class GameEngine {
     this.gameState.addObserverAction(action);
     
     // Only trigger personality evolution for divine interventions, not game state changes
-    const evolutionTriggeringActions = ['Smite', 'Bless', 'Meteor', 'Sanctify', 'Rend', 'Observe'];
+    const evolutionTriggeringActions = ['Smite', 'Bless', 'Meteor'];
     if (evolutionTriggeringActions.includes(action.type)) {
       // Store the evolution promise so AI turns can wait for it
       this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
@@ -627,17 +627,13 @@ export class GameEngine {
       case 'Bless':
         const blessedTile = this.gameState.getTile(action.parameters.x, action.parameters.y);
         if (!blessedTile) return { type: 'error', message: 'Invalid coordinates' };
-        blessedTile.troop_power += 5;
+        blessedTile.building = 'Shrine';
         if (blessedTile.owner !== 'Neutral') {
           const faction = this.gameState.factions.get(blessedTile.owner);
-          if (faction) faction.addResources(0, 2, 0);
+          if (faction) faction.addResources(0, 5);
         }
         return { type: 'bless', tile: { x: action.parameters.x, y: action.parameters.y } };
-        
-      case 'Observe':
-        // Observer watching - no game state changes, just for context
-        return { type: 'observe', commentary: action.parameters.commentary };
-        
+  
       case 'Meteor':
         // Meteor strike affecting 3x3 area
         const centerX = action.parameters.centerX || action.parameters.x;
@@ -650,33 +646,15 @@ export class GameEngine {
             if (x >= 0 && x < 10 && y >= 0 && y < 10) {
               const meteorTile = this.gameState.getTile(x, y);
               if (meteorTile) {
-                meteorTile.troop_power = Math.max(0, meteorTile.troop_power * 0.5);
+                meteorTile.troop_power = 0;
+                meteorTile.building = 'none';
                 affected.push({ x, y });
               }
             }
           }
         }
         return { type: 'meteor', center: { x: centerX, y: centerY }, affected };
-        
-      case 'Sanctify':
-        const sanctifyTile = this.gameState.getTile(action.parameters.x, action.parameters.y);
-        if (!sanctifyTile) return { type: 'error', message: 'Invalid coordinates' };
-        sanctifyTile.type = 'sacred'; // Convert to sacred terrain
-        sanctifyTile.building = 'Shrine'; // Add shrine building
-        sanctifyTile.troop_power += 3; // Divine empowerment
-        if (sanctifyTile.owner !== 'Neutral') {
-          const faction = this.gameState.factions.get(sanctifyTile.owner);
-          if (faction) faction.addResources(0, 3); // +3 Faith
-        }
-        return { type: 'sanctify', tile: { x: action.parameters.x, y: action.parameters.y } };
-        
-      case 'Rend':
-        const rendTile = this.gameState.getTile(action.parameters.x, action.parameters.y);
-        if (!rendTile) return { type: 'error', message: 'Invalid coordinates' };
-        rendTile.building = 'none'; // Destroy any building
-        rendTile.troop_power = Math.max(0, rendTile.troop_power - 7); // Heavy damage
-        return { type: 'rend', tile: { x: action.parameters.x, y: action.parameters.y } };
-        
+
       case 'Pause':
         this.isPaused = true;
         console.log('⏸ Game paused by observer');
