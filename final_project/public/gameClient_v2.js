@@ -19,6 +19,11 @@ const MAX_LOG_ENTRIES = 10;
 
 let tileRealLocations = new Map(); // Map tile keys to real pixel locations
 
+let hoveredTileKey = null;
+let hoveredTileInfo = null;
+
+let personalityEvolving = false;
+
 // Tile caching for performance
 let tileCache = new Map(); // Cache rendered tiles
 let gameStateSnapshot = null; // Snapshot of game state before animations
@@ -30,6 +35,8 @@ let textBoxActive = false;
 // Panel caching for performance
 let messagesPanelCache = null;
 let messagesPanelCacheInvalid = true;
+let infoPanelCache = null;
+let infoPanelCacheInvalid = true;
 let titleCache = null;
 
 let framesCol = '#2bff00ff';
@@ -131,6 +138,9 @@ function setup() {
   window.text_font = text_font;
   window.font_size = font_size;
   window.renderTileToBuffer = renderTileToBuffer;
+
+  cursor('./gauntletCursor/outlines/cursor_outline_white.png')
+  //cursor('./gauntletCursor/cursor_final.png');
 }
 
 function connectToServer() {
@@ -155,8 +165,6 @@ function connectToServer() {
 // =============================================================================
 function handleServerMessage(message) {
   const msgStart = performance.now();
-  console.log('📨 Received server message:', message.type, message.data);
-  console.log('📨 Full message object:', message);
   
   switch (message.type) {
     case 'gameState':
@@ -175,6 +183,8 @@ function handleServerMessage(message) {
         for (const action of message.data.actions) {
           console.log('➕ Adding action to queue:', action);
           animationQueue.push(action);
+          
+          if (message.data.player !== 'Observer') personalityEvolving = false;
           
           // Log action
           if (action.action) {
@@ -221,6 +231,7 @@ function handleServerMessage(message) {
       break;
       
     case 'gameEnded':
+      personalityEvolving = false;
       actionLog.push(`Game ended! Winner: ${message.data.winner} (${message.data.type} victory)`);
       handleGameEnd(message.data);
       break;
@@ -246,7 +257,6 @@ function processAnimationQueue() {
   const currentState = `${isAnimating}-${animationQueue.length}-${animationPaused}`;
   
   if (currentState !== lastProcessQueueLoggedState) {
-    console.log(`🎞️ processAnimationQueue: animating=${isAnimating}, queue=${animationQueue.length}, paused=${animationPaused}`);
     console.log(`📋 Queue contents:`, animationQueue.map(a => a.action ? a.action.type : 'unknown'));
     lastProcessQueueLoggedState = currentState;
   }
@@ -269,12 +279,14 @@ function processAnimationQueue() {
   
   isAnimating = true;
   const action = animationQueue.shift();
-  console.log(`🎬 Starting animation for:`, action);
+
+  infoPanelCacheInvalid = true;
   
   // Execute animation based on type
   executeAnimation(action, function() {
     console.log(`✅ Animation complete for:`, action.action ? action.action.type : 'unknown');
     isAnimating = false;
+    infoPanelCacheInvalid = true;
     processAnimationQueue(); // Process next action (will check pause state again)
   });
   
@@ -290,7 +302,7 @@ function executeAnimation(action, callback) {
   let duration;
   if (actionType === 'Message') {
     // Pass message text to getAnimationDuration
-    const messageText = action.action && action.action.parameters && action.action.parameters.text;
+    let messageText = action.action && action.action.parameters && action.action.parameters.text;
     duration = getAnimationDuration(actionType, messageText);
   } else {
     duration = getAnimationDuration(actionType);
@@ -397,7 +409,7 @@ function getAnimationDuration(type, messageText='') {
     // 50ms per character, min 1500ms, max 8000ms
     const base = 1500;
     const perChar = 100;
-    const max = 15000;
+    const max = 20000;
     if (typeof messageText === 'string') {
       return Math.max(base, Math.min(max, base + messageText.length * perChar));
     }
@@ -613,9 +625,54 @@ function drawMessagesPanel() {
   if (messagesPanelCacheInvalid) {
     messagesPanelCache = createGraphics(panel.width, panel.height);
     renderMessagesPanelToBuffer(messagesPanelCache, panel);
+    
+  if (hoveredTileInfo) {
+    drawTileTooltip(messagesPanelCache, panel, hoveredTileKey, hoveredTileInfo);
+  }
     messagesPanelCacheInvalid = false;
   }
   image(messagesPanelCache, panel.x, panel.y);
+  // Draw tooltip at the bottom of the left panel
+
+  
+function drawTileTooltip(buffer, panelInfo, tileKey, tile) {
+  const tooltipHeight = 190;
+  const tooltipWidth = panelInfo.width - 20;
+  const tooltipX = panelInfo.x + 10;
+  const tooltipY = panelInfo.y + panelInfo.height - tooltipHeight - 20;
+  // Draw border
+  render_ascii_to_buffer(buffer, tooltipX, tooltipY, tooltipWidth, tooltipHeight, '=I****', framesCol, true, font_size, 0.7);
+  // Info text
+  let lines = [];
+  lines.push(`Tile: ${tileKey}`);
+  lines.push(`Owner: ${tile.owner || 'None'}`);
+  lines.push(`Produces: R:${1 + (tile.building === 'Market' ? 1 : 0)}, F:${0 + ((tile.building === 'Shrine' || tile.building === 'Idol') ? 1 : 0)}`);
+  lines.push(`Troops: ${tile.troop_power}`);
+  lines.push(`Terrain: ${tile.type || 'normal'}`);
+  if (tile.effects && tile.effects.sanctuary) {
+    lines.push(`Sanctuary: ${tile.effects.sanctuary}`);
+  }
+  lines.push(`Building: ${tile.building || 'none'}`);
+  // Render lines
+  buffer.push();
+  buffer.textFont(text_font);
+  buffer.textSize(font_size * 0.9);
+  buffer.fill(textCol);
+  let y = tooltipY + 30;
+  for (const line of lines) {
+    if (line.substring(0, 6) === 'Owner:') {
+      let ownerCol = tile.owner !== 'Neutral' ? color(agents_color_map[tile.owner.slice(-1)]) : color(textCol);
+      buffer.fill(ownerCol);
+      buffer.stroke(bleedLerpColor(ownerCol, 0.5));
+    }else{
+      buffer.fill(textCol);
+      buffer.stroke(textColBleed);
+    }
+    buffer.text(line, tooltipX + 25, y);
+    y += 22;
+  }
+  buffer.pop();
+}
 }
 
 function render_ascii_to_buffer(buffer, x, y, w, h, style = '=I****', color = null, do_bg = true, size = font_size, dim_bg = 1){
@@ -955,7 +1012,7 @@ function drawSanctuaryOverlay(x, y, cellSize, sanctuaryTurns, tile) {
   textFont(text_font);
   textSize(font_size * 0.75);
   fill(agent_color);
-  strokeWeight(3);
+  strokeWeight(2);
   stroke(bleedLerpColor(color(agent_color)));
   textAlign(LEFT, TOP);
   
@@ -998,7 +1055,7 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   let bg_char = 'v';
   // Background characters - optimized batching like drawTile()
   buffer.fill('#2c231aff');
-  buffer.strokeWeight(3);
+  buffer.strokeWeight(2);
   buffer.stroke(bleedLerpColor(buffer.color('#2c231aff')));
   const charWidth = buffer.textWidth(bg_char);
   const charHeight = buffer.textAscent();
@@ -1019,7 +1076,7 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   let tl = '*', tr = '*', bl = '*', br = '*';
   
   buffer.fill(agent_color);
-  buffer.strokeWeight(3);
+  buffer.strokeWeight(2);
   buffer.stroke(bleedLerpColor(color(agent_color)));
   buffer.textAlign(LEFT, TOP);
   buffer.textSize(font_size * 0.75);
@@ -1107,31 +1164,42 @@ function drawTile(x, y, tile, cellSize) {
 function drawInfoPanel() {
   // Top-right: Faction info
   const panel = LAYOUT.rightPanel.infoSection;
+  if (infoPanelCacheInvalid) {
+    infoPanelCache = createGraphics(panel.width, panel.height);
+    renderInfoPanelToBuffer(infoPanelCache, panel);
+    infoPanelCacheInvalid = false;
+  }
+  image(infoPanelCache, panel.x, panel.y);
+}
+function renderInfoPanelToBuffer(buffer, panel) {
+  buffer.clear();
 
-  draw_border_ascii(panel.x, panel.y, panel.width, panel.height);
+  render_ascii_to_buffer(buffer, 0, 0, panel.width, panel.height);
   
-  push();
-  translate(panel.x, panel.y);
-  
-  fill(textCol);
-  strokeWeight(2);
-  stroke(textColBleed);
-  text('Faction Info', 20, 30);
+  buffer.fill(textCol);
+  buffer.strokeWeight(2);
+  buffer.stroke(textColBleed);
+  buffer.text('Faction Info', 20, 30);
   
   if (gameState && gameState.factions) {
     let y = 60;
     for (const [name, faction] of Object.entries(gameState.factions)) {
-      fill(agents_color_map[name[name.length -1]] || '#b4b4b4ff');
-      stroke(bleedLerpColor(color(agents_color_map[name[name.length -1]] || '#b4b4b4ff')));
-      text(`${name} - ${faction.personality}: ${getTileCount(faction)} tiles`, 20, y);
-      fill(textCol);
-      stroke(textColBleed);
-      text(`R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)}`, 20, y + 20);
+      let playerCol = color(agents_color_map[name[name.length -1]] || '#b4b4b4ff');
+      buffer.fill(playerCol);
+      buffer.stroke(bleedLerpColor(playerCol));
+      let printText = `${name} - ${faction.personality}: ${getTileCount(faction)} tiles`;
+      if (name === gameState.currentPlayer) printText += ' <--';
+
+      buffer.text(printText, 20, y);
+      buffer.fill(textCol);
+      buffer.stroke(textColBleed);
+      buffer.text(`Resouces:${faction.resources.R.toFixed(0)} Faith:${faction.resources.F.toFixed(0)}`, 20, y + 20);
       y += 50;
     }
   }
+
+  if (personalityEvolving) buffer.text('Rulers are thinking...', panel.width * 0.5, panel.height - 30);
   
-  pop();
 }
 
 function drawControlsPanel() {
@@ -1414,6 +1482,7 @@ function handleGameClick(x, y) {
   if (tilePos.x >= 0 && tilePos.x < 10 && tilePos.y >= 0 && tilePos.y < 10) {
     executeObserverAction(selectedObserverAction, tilePos.x, tilePos.y);
     selectedObserverAction = null;
+    personalityEvolving = true;
   }
 }
 
@@ -1474,6 +1543,7 @@ function togglePause() {
 }
 
 function sendObserverMessage() {
+  personalityEvolving = true;
   if (!textBoxContent.trim()) return;
   
   console.log('📝 Sending observer message:', textBoxContent);
@@ -1565,20 +1635,6 @@ function keyPressed() {
     }
     return; // Don't process other keys when text box is active
   }
-  if (key == 's'){
-      console.log('Sanctuary test');
-      //test sanctuary of tile, create fake action
-      let sanctuarykey = `${4}-${4}`;
-      animationReservedTiles.add(sanctuarykey);
-      currentAnimation = 'Sanctuary';
-      let action = {
-        action: {
-         type: 'Sanctuary', parameters: {x:4, y:4}
-        }
-      };
-      animationQueue.push(action);
-      processAnimationQueue();
-    }
 }
 
 function bleedLerpColor(col, amount = 0.7) {
@@ -1586,7 +1642,29 @@ function bleedLerpColor(col, amount = 0.7) {
 }
 
 function mouseMoved() {
-  
+  // Find which tile (if any) the mouse is over
+  let hovered = false;
+  for (const [tileKey, pos] of tileRealLocations.entries()) {
+    const w = pos.w;
+    const h = pos.h;
+    if (mouseX >= pos.x + LAYOUT.gamePanel.x && mouseX <= pos.x + LAYOUT.gamePanel.x + w &&
+        mouseY >= pos.y + LAYOUT.gamePanel.y && mouseY <= pos.y + LAYOUT.gamePanel.y + h - 10) {
+      if (hoveredTileKey !== tileKey) messagesPanelCacheInvalid = true;
+      hoveredTileKey = tileKey;
+      // Parse x/y from key
+      const [x, y] = tileKey.split('-').map(Number);
+      if (gameState && gameState.grid && gameState.grid[y] && gameState.grid[y][x]) {
+        hoveredTileInfo = gameState.grid[y][x];
+      }
+      hovered = true;
+      break;
+    }
+  }
+  if (!hovered) {
+    if (hoveredTileKey !== null) messagesPanelCacheInvalid = true;
+    hoveredTileKey = null;
+    hoveredTileInfo = null;
+  }
 }
 function getTileCount(faction) {
   let count = 0;

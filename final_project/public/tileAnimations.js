@@ -11,6 +11,10 @@ function seededRandomGenerator(seed) {
   };
 }
 
+function sanitizeAscii(str) {
+  return str.replace(/[^\x00-\x7F]/g, ' ');
+}
+
 function easeInOutCubic(t) {
   t = constrain(t, 0, 1);
   return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
@@ -548,7 +552,7 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
   const elapsed = Date.now() - animationStartTime;
   const progress = Math.min(elapsed / animationDuration, 1.0);
   const params = currentAction.action.parameters;
-  const message = params.text;
+  const message = sanitizeAscii(params.text);
   if (progress >= 1.0) {
     const callback = currentAction.callback;
     animationStartTime = 0;
@@ -626,7 +630,6 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
   let speakerNameBuffer = createGraphics(200, font_size * 3.5);
   window.render_ascii_to_buffer(speakerNameBuffer, 0, 0, speakerNameBuffer.width, speakerNameBuffer.height, '=I****', null, true, font_size, 0.2);
   
-  console.log(currentAction);
   if (currentAction.actionResult.changes.type === 'message'){//its the observer lol ultra monkeypatch
     let observercol = color('#ffffffff');
     speakerNameBuffer.fill(observercol);
