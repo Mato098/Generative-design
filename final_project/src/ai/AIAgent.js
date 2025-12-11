@@ -133,7 +133,7 @@ RULES:
 - Convert: Take adjacent tile with Faith (costs 3F). enemy troops flee to adjacent tiles, eliminated if no space
 - Construct: Build on YOUR tiles (costs R) - see building details below
 - Sanctuary: Protect tile from attacks for 2 turns (costs 4F)
-- Send_message: Broadcast to all factions or pray to divine powers
+- Send_message: Broadcast to all factions or pray to divine powers(keep it short)
 - Income: Each tile gives 1R per turn, Shrine/sacred give +F (faith is scarce!)
 - Only act on/from tiles you own (marked with your letter on map)
 - Adjacent = up/down/left/right only
@@ -182,15 +182,18 @@ Divine powers may intervene.`;
   }
 
   buildContextMessage(context) {
-    const { gameState, playerResources, ownedTiles, turnNumber, observerActionsLastTurn } = context;
-    
+    const { gameState, playerResources, ownedTiles, turnNumber, observerActionsLastTurn, lastAgentMessages } = context;
+
     // DEBUG: Log observer actions
     console.log(`🌟 Observer actions for ${this.name}:`, observerActionsLastTurn);
-    
+    if (lastAgentMessages) {
+      console.log(`🗣️ Last agent messages for ${this.name}:`, lastAgentMessages);
+    }
+
     let message = `TURN ${turnNumber} - Your Turn as ${this.name}
 
 YOUR CURRENT RESOURCES:
-- Resources: ${playerResources.R.toFixed(0)}R (for troops, buildings) 
+- Resources: ${playerResources.R.toFixed(0)}R (for troops, buildings)
 - Faith: ${playerResources.F.toFixed(0)}F (for conversions, sanctuary)
 
 ACTION COSTS REMINDER:
@@ -199,7 +202,7 @@ ACTION COSTS REMINDER:
 - Convert: 3F
 - Construct Buildings:
   • Shrine: 5R (produces +1F/turn)
-  • Market: 4R (produces +1R/turn) 
+  • Market: 4R (produces +1R/turn)
   • Tower: 5R (defense x1.4 multiplier)
   • Fortress: 10R (defense x1.8 multiplier)
   • Idol: 3R + 2F (produces +1F/turn)
@@ -214,18 +217,27 @@ BALANCE NOTES:
 ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
 
 `;
-    
+
+    // Add last messages from other agents
+    if (lastAgentMessages && lastAgentMessages.length > 0) {
+      message += '\nRECENT MESSAGES FROM OTHER FACTIONS:';
+      for (const msg of lastAgentMessages) {
+        message += `\n- ${msg.sender} (Turn ${msg.turn}): "${msg.text}"`;
+      }
+      message += '\n';
+    }
+
     // TACTICAL SITUATION - visual grid overview
     const gridInfo = this.buildGridVisualization(gameState.grid);
     message += gridInfo;
-    
+
     message += 'Use execute_turn_plan() with any number of actions.';
 
     // DEBUG: Print the final message being sent to AI
     console.log(`\n💬 === FINAL AI MESSAGE FOR ${this.name} ===`);
     console.log(message);
     console.log(`=== END FINAL AI MESSAGE ===\n`);
-    
+
     return message;
   }
 

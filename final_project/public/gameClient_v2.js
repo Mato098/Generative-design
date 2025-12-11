@@ -287,7 +287,14 @@ function processAnimationQueue() {
 function executeAnimation(action, callback) {
   // Simple timing-based animation system
   const actionType = action.action ? action.action.type : action.type;
-  const duration = getAnimationDuration(actionType);
+  let duration;
+  if (actionType === 'Message') {
+    // Pass message text to getAnimationDuration
+    const messageText = action.action && action.action.parameters && action.action.parameters.text;
+    duration = getAnimationDuration(actionType, messageText);
+  } else {
+    duration = getAnimationDuration(actionType);
+  }
 
   switch (actionType) {
     case 'Move':
@@ -372,7 +379,7 @@ function executeAnimation(action, callback) {
   }
 }
 
-function getAnimationDuration(type) {
+function getAnimationDuration(type, messageText='') {
   const durations = {
     'Move': 1200,
     'Convert': 2000,
@@ -382,10 +389,20 @@ function getAnimationDuration(type) {
     'Meteor': 1500,
     'Smite': 1000,
     'Bless': 2000,
-    'Message': 5000,
     'default': 1000
   };
-  
+
+  // Variable duration for Message animation
+  if (type === 'Message') {
+    // 50ms per character, min 1500ms, max 8000ms
+    const base = 1500;
+    const perChar = 100;
+    const max = 15000;
+    if (typeof messageText === 'string') {
+      return Math.max(base, Math.min(max, base + messageText.length * perChar));
+    }
+    return base;
+  }
   return durations[type] || durations.default;
 }
 
@@ -1096,7 +1113,6 @@ function drawInfoPanel() {
   push();
   translate(panel.x, panel.y);
   
-  // TODO: Draw faction stats, resources, turn info
   fill(textCol);
   strokeWeight(2);
   stroke(textColBleed);
@@ -1107,7 +1123,7 @@ function drawInfoPanel() {
     for (const [name, faction] of Object.entries(gameState.factions)) {
       fill(agents_color_map[name[name.length -1]] || '#b4b4b4ff');
       stroke(bleedLerpColor(color(agents_color_map[name[name.length -1]] || '#b4b4b4ff')));
-      text(`${name}: ${faction.tiles} tiles`, 20, y);
+      text(`${name} - ${faction.personality}: ${getTileCount(faction)} tiles`, 20, y);
       fill(textCol);
       stroke(textColBleed);
       text(`R:${faction.resources.R.toFixed(0)} F:${faction.resources.F.toFixed(0)}`, 20, y + 20);
@@ -1127,7 +1143,6 @@ function drawControlsPanel() {
   push();
   translate(panel.x, panel.y);
   
-  // TODO: Draw observer power buttons
   fill(textCol);
   strokeWeight(2);
   stroke(textColBleed);
@@ -1145,7 +1160,6 @@ function drawControlsPanel() {
   text(animationPaused ? 'Resume' : 'Pause', pauseButton.x + pauseButton.w/2, pauseButton.y + pauseButton.h/2);
   textAlign(LEFT);
   
-  // Example observer buttons
   drawObserverButtons();
   drawTextBox();
   
@@ -1574,6 +1588,21 @@ function bleedLerpColor(col, amount = 0.7) {
 function mouseMoved() {
   
 }
+function getTileCount(faction) {
+  let count = 0;
+  if (gameState && gameState.grid) {
+    const gridSize = gameState.grid.length;
+    for (let y = 0; y < gridSize; y++) {
+      for (let x = 0; x < gridSize; x++) {
+        const tile = gameState.grid[y][x];
+        if (tile.owner === faction.name) {
+          count++;
+        }
+      }
+    }
+  }
+  return count;
+}
 
 // =============================================================================
 // P5.js REQUIRED FUNCTIONS
@@ -1591,3 +1620,4 @@ window.keyPressed = keyPressed;
 window.tileRealLocations = tileRealLocations;
 window.agents_color_map = agents_color_map;
 window.bleedLerpColor = bleedLerpColor;
+window.render_ascii_to_buffer = render_ascii_to_buffer;

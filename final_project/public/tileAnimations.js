@@ -2,7 +2,7 @@
 let animationStartTime = 0;
 let currentAction = null;
 let animationDuration = 0;
-let singleTileBuf = null;
+let imageTmpBuf = null;
 
 function seededRandomGenerator(seed) {
   return function() {
@@ -478,29 +478,29 @@ export function drawTilesReinforce(gameState, cellSize, text_size) {
     animationStartTime = 0;
     animationDuration = 0;
     reinforceResolutionEffects(gameState, currentAction.actionResult);
-    singleTileBuf = null;
+    imageTmpBuf = null;
     currentAction = null;
     if (callback) {
       callback();
     }
     return;
   }
-  if (!singleTileBuf) {
-    singleTileBuf = createGraphics(cellSize, cellSize);
+  if (!imageTmpBuf) {
+    imageTmpBuf = createGraphics(cellSize, cellSize);
     let noNumTile =  gameState.grid[Y][X];;
     noNumTile.troop_power = 0;
   
-    window.renderTileToBuffer(singleTileBuf, noNumTile, cellSize);
+    window.renderTileToBuffer(imageTmpBuf, noNumTile, cellSize);
   }
   
   strokeWeight(2);
   stroke(color(window.agents_color_map[gameState.grid[Y][X].owner.slice(-1)]));
   fill(255);
-  singleTileBuf.textAlign(CENTER, CENTER);
-  singleTileBuf.textSize(text_size * 1.5);
+  imageTmpBuf.textAlign(CENTER, CENTER);
+  imageTmpBuf.textSize(text_size * 1.5);
   let currentTroopsShown = floor(lerp(currentAction.actionResult.changes.oldValue, currentAction.actionResult.changes.newValue, easeInOutCubic(progress)));
 
-  image(singleTileBuf, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+  image(imageTmpBuf, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
   textAlign(CENTER, CENTER);
   text(currentTroopsShown, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16 + cellSize / 2, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9 + cellSize / 2);
 }
@@ -554,21 +554,109 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
     animationStartTime = 0;
     animationDuration = 0;
     currentAction = null;
+    imageTmpBuf = null;
     if (callback) {
       callback();
     }
     return;
   }
-  console.log('MSG: ', currentAction);
-  // Draw message box at center of screen
-  const boxWidth = cellSize * 6;
-  const boxHeight = cellSize * 2;
-  const boxX = (window.LAYOUT.totalWidth - boxWidth) / 2;
-  const boxY = (window.LAYOUT.totalHeight - boxHeight) / 2;
-  fill(0, 200);
-  rect(boxX, boxY, boxWidth, boxHeight, 10);
+  // Calculate required height for the message (word wrapping)
+  if (!imageTmpBuf) {
+    // Estimate how many lines are needed for the full message
+    textSize(font_size);
+    const padding = 15;
+    const usableWidth = window.LAYOUT.gamePanel.width * 0.8 - (padding * 2);
+    const words = message.split(' ');
+    let lines = [];
+    let currentLine = '';
+    for (let i = 0; i < words.length; i++) {
+      let testLine = currentLine.length > 0 ? currentLine + ' ' + words[i] : words[i];
+      if (textWidth(testLine) > usableWidth && currentLine.length > 0) {
+        lines.push(currentLine);
+        currentLine = words[i];
+      } else {
+        currentLine = testLine;
+      }
+    }
+    if (currentLine.length > 0) lines.push(currentLine);
+    const lineHeight = font_size + 2;
+    const neededHeight = Math.max(window.LAYOUT.gamePanel.height * 0.15, lines.length * lineHeight + padding * 2);
+
+    imageTmpBuf = createGraphics(window.LAYOUT.gamePanel.width * 0.8, neededHeight);
+    window.render_ascii_to_buffer(imageTmpBuf, 0, 0, imageTmpBuf.width, imageTmpBuf.height, '=I****', null, true, font_size, 0.2);
+  }
+
+  // Write word by word
+  let wordProgress = map(progress, 0, 0.6, 0, 1, true);
+  let words = message.split(' ');
+  let wordsToShow = ceil(wordProgress * words.length);
+
+  image(imageTmpBuf, window.LAYOUT.gamePanel.width * 0.1, window.LAYOUT.gamePanel.height * 0.1);
   fill(255);
-  textAlign(CENTER, CENTER);
+  stroke('#808080ea');
+  strokeWeight(2);
+  textAlign(LEFT, TOP);
   textSize(font_size);
-  text(message, boxX + boxWidth / 2, boxY + boxHeight / 2);
+
+  const padding = 15;
+  const usableWidth = imageTmpBuf.width - (padding * 2);
+  const lineHeight = font_size + 2;
+
+  // Word wrapping for displayed words
+  let xOffset = window.LAYOUT.gamePanel.width * 0.1 + padding;
+  let yOffset = window.LAYOUT.gamePanel.height * 0.1 + padding;
+  let currentLine = '';
+  for (let i = 0; i < wordsToShow; i++) {
+    let word = words[i];
+    let testLine = currentLine.length > 0 ? currentLine + ' ' + word : word;
+    if (textWidth(testLine) > usableWidth && currentLine.length > 0) {
+      // Draw current line
+      text(currentLine, xOffset, yOffset);
+      yOffset += lineHeight;
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  // Draw last line
+  if (currentLine.length > 0) {
+    text(currentLine, xOffset, yOffset);
+  }
+  console.log("Drawing speaker name...");
+
+  let speakerNameBuffer = createGraphics(200, font_size * 3.5);
+  window.render_ascii_to_buffer(speakerNameBuffer, 0, 0, speakerNameBuffer.width, speakerNameBuffer.height, '=I****', null, true, font_size, 0.2);
+  
+  console.log(currentAction);
+  if (currentAction.actionResult.changes.type === 'message'){//its the observer lol ultra monkeypatch
+    console.log("OBSERVER MESSAGE DETECTED");
+    let observercol = color('#ffffffff');
+    speakerNameBuffer.fill(observercol);
+    speakerNameBuffer.stroke(window.bleedLerpColor(observercol, 0.2));
+    speakerNameBuffer.strokeWeight(2);
+    speakerNameBuffer.textAlign(CENTER, CENTER);
+    speakerNameBuffer.textSize(font_size);
+    let nameTextWidth = speakerNameBuffer.textWidth("You");
+    speakerNameBuffer.text("You", speakerNameBuffer.width / 2, speakerNameBuffer.height / 2);
+    image(speakerNameBuffer, window.LAYOUT.gamePanel.width*0.1 + imageTmpBuf.width / 2 - speakerNameBuffer.width / 2, window.LAYOUT.gamePanel.height*0.1 - speakerNameBuffer.height);
+    return;
+
+  }else if (currentAction.actionResult.changes.type === 'ruler_declaration'){
+    console.log("RULER MESSAGE DETECTED");
+    let rulerName = gameState.currentPlayer;
+    let rulerCol = color(window.agents_color_map[rulerName.slice(-1)] || '#888888ff');
+    speakerNameBuffer.fill(rulerCol);
+    speakerNameBuffer.stroke(window.bleedLerpColor(rulerCol, 0.2));
+    speakerNameBuffer.strokeWeight(2);
+    speakerNameBuffer.textAlign(CENTER, CENTER);
+    speakerNameBuffer.textSize(font_size);
+    let nameTextWidth = speakerNameBuffer.textWidth(rulerName);
+    speakerNameBuffer.text(rulerName, speakerNameBuffer.width / 2, speakerNameBuffer.height / 2);
+    image(speakerNameBuffer, window.LAYOUT.gamePanel.width*0.1 + imageTmpBuf.width / 2 - speakerNameBuffer.width / 2, window.LAYOUT.gamePanel.height*0.1 - speakerNameBuffer.height);
+  }else{
+    //shouldnt happen
+    console.log(currentAction);
+  }
+  
+
 }

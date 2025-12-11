@@ -256,6 +256,8 @@ export class GameEngine {
           action: { type: 'Message', parameters: { text: decisions.message } },
           changes: { type: 'ruler_declaration', message: decisions.message }
         });
+        // Log message for inter-agent communication
+        this.gameState.addAgentMessage(factionName, this.gameState.turnNumber, decisions.message);
       }
       
       return executedActions;
@@ -301,14 +303,16 @@ export class GameEngine {
 
   buildAIContext(currentPlayerName) {
     const currentFaction = this.gameState.getCurrentPlayer();
-    
+    // Get last message from each other agent
+    const lastAgentMessages = this.gameState.getLastMessagesFromOtherAgents(currentPlayerName);
     return {
       gameState: this.gameState.toJSON(),
       playerName: currentPlayerName,
       playerResources: currentFaction.resources,
       ownedTiles: this.gameState.getOwnedTiles(currentPlayerName),
       turnNumber: this.gameState.turnNumber,
-      observerActionsLastTurn: this.gameState.getObserverActionsForTurn()
+      observerActionsLastTurn: this.gameState.getObserverActionsForTurn(),
+      lastAgentMessages // [{sender, turn, text}]
     };
   }
 

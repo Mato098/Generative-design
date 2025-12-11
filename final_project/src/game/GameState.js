@@ -11,6 +11,33 @@ export class GameState {
     this.observerActions = [];
     this.actionHistory = [];
     this.playerOrder = []; // Will include observer as last player
+    this.agentMessages = []; // { sender, turn, text }
+  }
+  /**
+   * Log a message sent by an agent (for inter-agent communication)
+   * @param {string} sender - Faction name
+   * @param {number} turn - Turn number
+   * @param {string} text - Message text
+   */
+  addAgentMessage(sender, turn, text) {
+    this.agentMessages.push({ sender, turn, text });
+  }
+
+  /**
+   * Get the last message from each other agent (excluding the requesting agent)
+   * @param {string} excludeSender - Faction name to exclude
+   * @returns {Array<{sender, turn, text}>}
+   */
+  getLastMessagesFromOtherAgents(excludeSender) {
+    const lastMessages = {};
+    // Traverse in reverse to get most recent first
+    for (let i = this.agentMessages.length - 1; i >= 0; i--) {
+      const msg = this.agentMessages[i];
+      if (msg.sender !== excludeSender && !lastMessages[msg.sender]) {
+        lastMessages[msg.sender] = msg;
+      }
+    }
+    return Object.values(lastMessages);
   }
 
   initializeGrid() {
@@ -200,7 +227,8 @@ export class GameState {
       turnNumber: this.turnNumber,
       gameStatus: this.gameStatus,
       observerActions: this.observerActions,
-      playerOrder: this.playerOrder
+      playerOrder: this.playerOrder,
+      agentMessages: this.agentMessages
     };
   }
 }
