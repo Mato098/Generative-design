@@ -1180,6 +1180,7 @@ function renderInfoPanelToBuffer(buffer, panel) {
   buffer.strokeWeight(2);
   buffer.stroke(textColBleed);
   buffer.text('Faction Info', 20, 30);
+  buffer.text(`Turn: ${gameState ? gameState.turnNumber : 'N/A'}`, panel.width * 0.75, 30);
   
   if (gameState && gameState.factions) {
     let y = 60;
