@@ -622,14 +622,12 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
   if (currentLine.length > 0) {
     text(currentLine, xOffset, yOffset);
   }
-  console.log("Drawing speaker name...");
 
   let speakerNameBuffer = createGraphics(200, font_size * 3.5);
   window.render_ascii_to_buffer(speakerNameBuffer, 0, 0, speakerNameBuffer.width, speakerNameBuffer.height, '=I****', null, true, font_size, 0.2);
   
   console.log(currentAction);
   if (currentAction.actionResult.changes.type === 'message'){//its the observer lol ultra monkeypatch
-    console.log("OBSERVER MESSAGE DETECTED");
     let observercol = color('#ffffffff');
     speakerNameBuffer.fill(observercol);
     speakerNameBuffer.stroke(window.bleedLerpColor(observercol, 0.2));
@@ -642,7 +640,6 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
     return;
 
   }else if (currentAction.actionResult.changes.type === 'ruler_declaration'){
-    console.log("RULER MESSAGE DETECTED");
     let rulerName = gameState.currentPlayer;
     let rulerCol = color(window.agents_color_map[rulerName.slice(-1)] || '#888888ff');
     speakerNameBuffer.fill(rulerCol);
@@ -655,8 +652,6 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
     image(speakerNameBuffer, window.LAYOUT.gamePanel.width*0.1 + imageTmpBuf.width / 2 - speakerNameBuffer.width / 2, window.LAYOUT.gamePanel.height*0.1 - speakerNameBuffer.height);
   }else{
     //shouldnt happen
-    console.log(currentAction);
+    console.log("Unknown message type for ruler message animation.");
   }
-  
-
 }

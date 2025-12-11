@@ -251,7 +251,6 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
       for (let x = 0; x < 10; x++) {
         const tile = grid[y][x];
         let symbol = '';
-        
         // Owner: A/B=factions, N=neutral
         if (tile.owner === this.name) {
           symbol = this.name.slice(-1); // A or B
@@ -260,7 +259,6 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
         } else {
           symbol = tile.owner.slice(-1); // Other faction letter
         }
-        
         // Add exact troop count for better AI decision making
         const troops = Math.floor(tile.troop_power);
         if (troops >= 100) {
@@ -270,7 +268,6 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
         } else {
           symbol += troops.toString();
         }
-        
         // Add building indicator
         if (tile.building === 'Shrine') symbol += 'S';
         else if (tile.building === 'Fortress') symbol += 'F';
@@ -280,15 +277,14 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
         else if (tile.building === 'Idol') symbol += 'I';
         else if (tile.type === 'sacred') symbol += '☼';
         else symbol += '-';
-        
         // Pad to 4 chars max, truncate if longer
         symbol = (symbol + '    ').substring(0, 4);
-        visualization += symbol;
+        visualization += symbol + ' ';
       }
       visualization += '\n';
     }
     
-    visualization += 'Legend: A/B=factions, N=neutral, numbers=troops, S(shrine)/F(fortress)/T(tower)/M(market)/R(recruitment)/I(idol)=buildings\n';
+    visualization += 'Legend: A/B/C/D=factions, N=neutral, numbers=troops, S(shrine)/F(fortress)/T(tower)/M(market)/R(recruitment)/I(idol)=buildings\n';
     return visualization;
   }
 
