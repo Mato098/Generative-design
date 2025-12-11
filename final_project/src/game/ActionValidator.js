@@ -36,13 +36,29 @@ export class ActionValidator {
       return { valid: false, error: 'Amount must be at least 1' };
     }
     
-    const cost = amount; // 1R per troop
-    if (!faction.canAfford({ R: cost })) {
-      return { valid: false, error: `Insufficient resources (need ${cost} R)` };
+    // Calculate dynamic cost
+    let totalCost = 0;
+    let currentRecruitCount = (faction.turnData && faction.turnData.troopsRecruitedThisTurn) || 0;
+    
+    for (let i = 0; i < amount; i++) {
+      let costPerTroop;
+      if (currentRecruitCount < 5) {
+        costPerTroop = 1;
+      } else if (currentRecruitCount < 10) {
+        costPerTroop = 2;
+      } else {
+        costPerTroop = 3;
+      }
+      totalCost += costPerTroop;
+      currentRecruitCount++;
     }
     
-    if (tile.troop_power >= 50) {
-      return { valid: false, error: 'Troop power already at maximum (50)' };
+    if (!faction.canAfford({ R: totalCost })) {
+      return { valid: false, error: `Insufficient resources (need ${totalCost} R)` };
+    }
+    
+    if (tile.troop_power >= 20) {
+      return { valid: false, error: 'Troop power already at maximum (20)' };
     }
     
     return { valid: true };
@@ -80,11 +96,20 @@ export class ActionValidator {
     
     // Check if target is owned by player (movement) or not (attack)
     if (targetTile.owner === playerName) {
-      // This is a troop movement between own tiles
-      return { valid: true, moveType: 'redistribute' };
+      // This is a troop movement between own tiles - check capacity
+      const targetCapacity = 20 - targetTile.troop_power;
+      if (targetCapacity <= 0) {
+        return { valid: false, error: "Target tile at maximum capacity (20 troops)" };
+      }
+      return { 
+        valid: true, 
+        moveType: 'redistribute',
+        willMovePartial: troops > targetCapacity,
+        maxCanMove: Math.min(troops, targetCapacity, sourceTile.troop_power)
+      };
     } else {
       // This is an attack on enemy/neutral tile
-      if (targetTile.effects && targetTile.effects.sanctuary && targetTile.effects.sanctuary > gameState.turnNumber) {
+      if (targetTile.effects && targetTile.effects.sanctuary && targetTile.effects.sanctuary >= gameState.turnNumber) {
         return { valid: false, error: "Cannot attack tile under divine protection" };
       }
       return { valid: true, moveType: 'assault' };
@@ -150,11 +175,11 @@ export class ActionValidator {
     
     const buildingCosts = {
       'Shrine': { R: 5 },
-      'Idol': { R: 3 },
-      'Training': { R: 4 },
-      'Market': { R: 3 },
-      'Tower': { R: 4 },
-      'Fortress': { R: 6 }
+      'Idol': { R: 3, F: 2 },
+      'Training': { R: 5 },
+      'Market': { R: 4 },
+      'Tower': { R: 5 },
+      'Fortress': { R: 10 }
     };
     
     const cost = buildingCosts[building];
@@ -187,7 +212,7 @@ export class ActionValidator {
     }
     
     // Check if tile already has sanctuary
-    if (tile.effects && tile.effects.sanctuary && tile.effects.sanctuary > gameState.turnNumber) {
+    if (tile.effects && tile.effects.sanctuary && tile.effects.sanctuary >= gameState.turnNumber) {
       return { valid: false, error: 'Tile already protected' };
     }
     

@@ -21,6 +21,7 @@ export class PersonalityEvolver {
   async evolvePersonalities(personalities, divineEvent, targetFaction = null) {
     try {
       const evolutionPrompt = this.buildEvolutionPrompt(personalities, divineEvent, targetFaction);
+      console.log('⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳⏳ Evolving personalities...');
       
       const startTime = Date.now();
       const response = await this.openai.chat.completions.create({
@@ -28,7 +29,7 @@ export class PersonalityEvolver {
         messages: [
           {
             role: "system",
-            content: "You are a personality evolution specialist. Given AI personalities of rulers/monarchs and a divine event, make subtle(or not) but meaningful changes to how these personalities might evolve in response. Keep core traits but allow for growth, trauma, enlightenment, or rebellion as appropriate. Return ONLY valid JSON with the same structure as input."
+            content: "You are a personality evolution specialist. Given AI personalities of rulers/monarchs and a divine event, make subtle(or dramatic) but meaningful changes to how these personalities might evolve in response. Keep core traits but allow for growth, trauma, enlightenment, or rebellion as appropriate. Return ONLY valid JSON with the same structure as input."
           },
           {
             role: "user",
@@ -41,7 +42,7 @@ export class PersonalityEvolver {
 
       const endTime = Date.now();
       const duration = endTime - startTime;
-      
+      console.log(response.choices[0].message.content);
       const evolvedPersonalities = JSON.parse(response.choices[0].message.content);
       console.log(`⏱️ Personality evolution completed: ${duration / 1000}s`);
       
@@ -56,7 +57,17 @@ export class PersonalityEvolver {
 
   buildEvolutionPrompt(personalities, divineEvent, targetFaction) {
     const eventDescription = this.describeDivineEvent(divineEvent, targetFaction);
-    
+    console.log(eventDescription);
+
+    // Support multiple direct targets (array or string)
+    let directTargetText = 'none';
+    if (Array.isArray(targetFaction)) {
+      if (targetFaction.length === 1) directTargetText = targetFaction[0];
+      else if (targetFaction.length > 1) directTargetText = targetFaction.join(', ');
+    } else if (targetFaction) {
+      directTargetText = targetFaction;
+    }
+
     return `DIVINE EVENT: ${eventDescription}
 
 CURRENT PERSONALITIES:
@@ -65,48 +76,45 @@ ${JSON.stringify(personalities, null, 2)}
 EVOLUTION TASK:
 Based on this divine intervention, evolve each AI personality slightly. Consider:
 
-1. DIRECT TARGET (${targetFaction || 'none - neutral territory affected'}): How does being personally targeted/spared change them?
+1. DIRECT TARGET${Array.isArray(targetFaction) ? 'S' : ''} (${directTargetText}): How does being personally targeted/spared change them?
 2. WITNESSES: How do other factions react to seeing someone else targeted by divine power?
-3. PERSONALITY CONSISTENCY: Keep core traits but allow meaningful growth based on their relationship to the target
+3. PERSONALITY CONSISTENCY: Keep core traits but allow meaningful growth based on their relationship to the target(s)
 4. RELATIONSHIP DYNAMICS: How might their view of the divine entity change based on who was targeted and why?
 
 EVOLUTION GUIDELINES:
-- Subtle changes to personality_prompt (1-2 sentence modifications)
+- Changes to personality_prompt (1-2 sentence modifications)
 - Possible additions to core_beliefs if worldview shifts based on targeting patterns
+- possible changes to speech patterns/defects
 - Changes to authority_relationship based on divine favoritism or wrath
 - Keep the same JSON structure
-- Each faction should react according to their existing nature AND their relationship to the target
+- Each faction should react according to their existing nature AND their relationship to the target(s)
 - Consider: Was this fair? Deserved? Random? What does this say about the divine entity's judgment?
+- do not change the faction tags(Faction A), or their names(name: ...)
 
-Return the evolved personalities as valid JSON:`;
+Return the evolved personalities as valid JSON`;
   }
 
   describeDivineEvent(divineEvent, targetFaction) {
     const { type, parameters } = divineEvent;
+    console.log('Divine Event:', divineEvent);
     
     const targetInfo = targetFaction ? ` targeting ${targetFaction}` : ' on neutral territory';
     
     switch (type.toLowerCase()) {
       case 'smite':
-        return `Divine Power Manifested - A force struck (${parameters.x},${parameters.y})${targetInfo}, annihilating all troops. ${parameters.reason || 'The powers offered no explanation'}.`;
+        return `Divine Power Manifested - A force struck (${parameters.x},${parameters.y})${targetInfo}, annihilating all troops.`;
         
       case 'bless':
-        return `Divine Power Manifested - Energy surged at (${parameters.x},${parameters.y})${targetInfo}, conjuring troops and resources. ${parameters.reason || 'The powers offered no explanation'}.`;
+        return `Divine Power Manifested - Energy surged at (${parameters.x},${parameters.y})${targetInfo}, spreading faith and estabilishing a Shrine.`;
         
       case 'meteor':
-        return `Celestial Event - Fire fell at (${parameters.centerX || parameters.x},${parameters.centerY || parameters.y})${targetInfo}, devastating a 3x3 area. ${parameters.reason || 'The powers offered no explanation'}.`;
+        return `Celestial Event - A meteor fell at (${parameters.centerX || parameters.x},${parameters.centerY || parameters.y})${targetInfo}, devastating a 3x3 area.`;
         
-      case 'observe':
-        return `Divine Voice - The powers spoke: "${parameters.commentary || 'Silence'}"`;
-        
-      case 'sanctify':
-        return `Divine Power Manifested - A surge blessed (${parameters.x},${parameters.y})${targetInfo}, empowering the land. ${parameters.reason || 'The powers offered no explanation'}.`;
-        
-      case 'rend':
-        return `Divine Power Manifested - Destruction consumed (${parameters.x},${parameters.y})${targetInfo}, obliterating all. ${parameters.reason || 'The powers offered no explanation'}.`;
-        
+      case 'message':
+        return `Divine Voice - The powers spoke: "${parameters.text || 'nothing'}"`;
+      
       default:
-        return `Divine Event - The powers acted at${targetInfo}: ${type}`;
+        return `Divine Event - The powers acted at${targetInfo}: ${divineEvent.parameters}`;
     }
   }
 
@@ -117,8 +125,20 @@ Return the evolved personalities as valid JSON:`;
    * @param {number} y - Y coordinate
    * @returns {string|null} Faction name or null
    */
-  static getTargetFaction(gameState, x, y) {
+  static getTargetFactions(gameState, x, y, type) {
     const tile = gameState.getTile(x, y);
+    if (typeof type === 'string' && type.toLowerCase() === 'meteor') { // do 3x3 area check
+      let result = [];
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const areaTile = gameState.getTile(x + dx, y + dy);
+          if (areaTile && areaTile.owner !== 'Neutral' && !result.includes(areaTile.owner)) {
+            result.push(areaTile.owner);
+          }
+        }
+      }
+      return result;
+    }
     return tile && tile.owner !== 'Neutral' ? tile.owner : null;
   }
 

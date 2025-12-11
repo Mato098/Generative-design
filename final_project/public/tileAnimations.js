@@ -2,6 +2,19 @@
 let animationStartTime = 0;
 let currentAction = null;
 let animationDuration = 0;
+let singleTileBuf = null;
+
+function seededRandomGenerator(seed) {
+  return function() {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+}
+
+function easeInOutCubic(t) {
+  t = constrain(t, 0, 1);
+  return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+}
 
 export function animateUniversal(actionData, duration, callback) {
   animationStartTime = Date.now();
@@ -50,7 +63,13 @@ function constructResolutionEffects(gameState, actionResult) {
 function convertResolutionEffects(gameState, actionResult) {
   if (actionResult.success) {
     const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
+    if (actionResult.changes.success === false) return;
+    for (const fleeingTile of actionResult.changes.fleeing.tiles) {
+      const fleeTile = gameState.grid[fleeingTile.y][fleeingTile.x];
+      fleeTile.troop_power += actionResult.changes.fleeing.per_tile_amount;
+    }
     tile.owner = actionResult.changes.newOwner;
+    tile.troop_power = 0;
   }
 }
 
@@ -59,6 +78,13 @@ function blessResolutionEffects(gameState, actionResult) {
     const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
     tile.building = 'Shrine';
     if (tile.owner !== 'Neutral') gameState.factions[tile.owner].resources.F += 5;
+  }
+}
+
+function reinforceResolutionEffects(gameState, actionResult) {
+  if (actionResult.success) {
+    const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
+    tile.troop_power = actionResult.changes.newValue;
   }
 }
 
@@ -103,6 +129,13 @@ function regenerateTileCache(actionResult) {
   window.tileCache.delete(toKey);
 }
 
+function sanctuaryResolutionEffects(gameState, actionResult) {
+  if (actionResult.success && actionResult.changes && actionResult.changes.protectedUntil) {
+    const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
+    if (!tile.effects) tile.effects = {};
+    tile.effects.sanctuary = actionResult.changes.protectedUntil;
+  }
+}
 
 export function drawMovingTiles(gameState, cellSize) {
   if (!currentAction) return;
@@ -274,8 +307,6 @@ export function drawTilesConvert(gameState, cellSize) {
   const params = currentAction.action.parameters;
   const X = params.x;
   const Y = params.y;
-  console.log("DRAW CONVERT ANIMATION", X, Y, progress);
-  console.log(currentAction.actionResult);
 
   let tileKey = `${X}-${Y}`;
   let tileImage = window.tileCache.get(tileKey);
@@ -324,38 +355,63 @@ export function drawTilesConvert(gameState, cellSize) {
 
   noStroke();
 
-  let dropdownSpeed = 0.05;
-  let lightDropDown = map(progress, 0, dropdownSpeed, 0, 1, true);
+  let dropdownSpeed = 0.15;
+  let growFactor = map(progress, 0, dropdownSpeed, 0, 1, true);
   if (progress > 1 - dropdownSpeed){
-    lightDropDown = map(progress, 1 - dropdownSpeed, 1.0, 1, 0, true);
+    growFactor = map(progress, 1 - dropdownSpeed, 1.0, 1, 0, true);
   }
   let playerName = currentAction.actionResult.beforeState.currentPlayer;
-  let col = color(window.agents_color_map[playerName.slice(-1)])
-  col.setAlpha(150);
-  if (!currentAction.actionResult.changes.success) col = lerpColor(col, color("#616161a8"), progress);
-  let colAlpha = col;
-  colAlpha.setAlpha(1);
+  let col = color(window.agents_color_map[playerName.slice(-1)]);
+  if (!currentAction.actionResult.changes.success) col = color("#616161a8");
+  col.setAlpha(150 * (1 - progress));
 
-  //REDO rect 'towers' on borders of tile raise and fall. possibly w gradients
+  rectMode(CORNERS);
+  fill(col);
+  noStroke();
   
-  let convertGradient = createLinearGradient(-PI/2, cellSize);
-  convertGradient.colors(0, col, 1, colAlpha);
-  fillGradient(convertGradient);
-  push();
-  translate(tileLocation.x + cellSize * 0.05, (tileLocation.y + cellSize * 0.85));
+  let randomGen = seededRandomGenerator(X * 1000 + Y);
 
-  beginShape();
-  vertex(0, cellSize * -1);
-  vertex(0, 0);
-  vertex(cellSize * 0.8, 0);
+  let towerWidth = cellSize * 0.06;
+  let maxTowerHeight = cellSize * 0.5;
+  let numTowersPerSide = 32;
+  let towerSpacing = (cellSize - towerWidth) / (numTowersPerSide - 1);
 
-  vertex(lerp(cellSize * 0.8, tileLocation.x + cellSize * 2.85, lightDropDown), lerp(0, cellSize * -2, lightDropDown));
-  vertex(lerp(0, cellSize * 0.50, lightDropDown), lerp((cellSize * -1 ,tileLocation.y + cellSize * -2, lightDropDown))); 
-  endShape(CLOSE);
-  pop();
-  
-  
-  
+  // Top side
+  for (let i = 0; i < numTowersPerSide; i++) {
+    let towerHeight = maxTowerHeight * randomGen();
+    let x1 = tileLocation.x + i * towerSpacing;
+    let y1 = tileLocation.y + cellSize * 0.15 - towerHeight * growFactor;
+    let x2 = x1 + towerWidth;
+    let y2 = tileLocation.y + cellSize * 0.15;
+    rect(x1, y1, x2, y2);
+  }
+  // Bottom side
+  for (let i = 0; i < numTowersPerSide; i++) {
+    let towerHeight = maxTowerHeight * randomGen();
+    let x1 = tileLocation.x + i * towerSpacing;
+    let y1 = tileLocation.y + cellSize * 0.85;
+    let x2 = x1 + towerWidth;
+    let y2 = y1 + towerHeight * growFactor;
+    rect(x1, y1, x2, y2);
+  }
+  // Left side - towers rise along left edge
+  for (let i = 0; i < numTowersPerSide; i++) {
+    let towerHeight = maxTowerHeight * randomGen();
+    let x1 = tileLocation.x + cellSize * 0.05 - towerHeight * growFactor;
+    let y1 = tileLocation.y + i * towerSpacing;
+    let x2 = tileLocation.x + cellSize * 0.05;
+    let y2 = y1 + towerWidth;
+    rect(x1, y1, x2, y2);
+  }
+  // Right side - towers rise along right edge
+  for (let i = 0; i < numTowersPerSide; i++) {
+    let towerHeight = maxTowerHeight * randomGen();
+    let x1 = tileLocation.x + cellSize * 0.95;
+    let y1 = tileLocation.y + i * towerSpacing;
+    let x2 = x1 + towerHeight * growFactor;
+    let y2 = y1 + towerWidth;
+    rect(x1, y1, x2, y2);
+  }
 }
 
 export function drawTilesConstruct(gameState, cellSize, font_size) {
@@ -384,10 +440,13 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   let col = window.agents_color_map[gameState.grid[Y][X].owner.slice(-1)] || '#888888ff';
   let bleedCol = window.bleedLerpColor(color(col), 0.5);
 
+  const {x, y, w, h} = window.tileRealLocations.get(tileKey);
+
+  textSize(font_size);
   let buildingName = currentAction.action.parameters.building;
   textAlign(LEFT, CENTER);
-  const screentextStartX = X * cellSize + LAYOUT.totalWidth * 0.125/16 + cellSize / 2 - (textWidth(buildingName) / 2);
-  const screenStartY = Y * cellSize + LAYOUT.totalHeight * 0.1/9 + cellSize * 0.75;
+  const screentextStartX = x + cellSize/2 - (textWidth(buildingName) / 2);
+  const screenStartY = y + cellSize * 0.75;
 
   let newLetterIdx = floor(map(progress, 0, 0.8, 0, 1, true) * buildingName.length) - 1;
   let newLetter = buildingName.charAt(newLetterIdx);
@@ -396,7 +455,6 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   fill(col);
   stroke(bleedCol);
   strokeWeight(2);
-  textSize(font_size);
   text(lettersAlreadyDrawn, screentextStartX, screenStartY);
   
   fill(255, 255, 255);
@@ -404,4 +462,113 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   textSize(font_size * 1.5);  
   text(newLetter, screentextStartX + drawnWidth + 2, screenStartY);
   textSize(font_size);
+}
+
+export function drawTilesReinforce(gameState, cellSize, text_size) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);
+  const params = currentAction.action.parameters;
+  const X = params.x;
+  const Y = params.y;
+  let tileKey = `${X}-${Y}`;
+  let tileImage = window.tileCache.get(tileKey);
+  if (progress >= 1.0) {
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+    reinforceResolutionEffects(gameState, currentAction.actionResult);
+    singleTileBuf = null;
+    currentAction = null;
+    if (callback) {
+      callback();
+    }
+    return;
+  }
+  if (!singleTileBuf) {
+    singleTileBuf = createGraphics(cellSize, cellSize);
+    let noNumTile =  gameState.grid[Y][X];;
+    noNumTile.troop_power = 0;
+  
+    window.renderTileToBuffer(singleTileBuf, noNumTile, cellSize);
+  }
+  
+  strokeWeight(2);
+  stroke(color(window.agents_color_map[gameState.grid[Y][X].owner.slice(-1)]));
+  fill(255);
+  singleTileBuf.textAlign(CENTER, CENTER);
+  singleTileBuf.textSize(text_size * 1.5);
+  let currentTroopsShown = floor(lerp(currentAction.actionResult.changes.oldValue, currentAction.actionResult.changes.newValue, easeInOutCubic(progress)));
+
+  image(singleTileBuf, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+  textAlign(CENTER, CENTER);
+  text(currentTroopsShown, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16 + cellSize / 2, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9 + cellSize / 2);
+}
+
+export function drawTilesSanctuary(gameState, cellSize, font_size) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);
+  const params = currentAction.action.parameters;
+  const X = params.x;
+  const Y = params.y;
+  let tileKey = `${X}-${Y}`;
+  let tileImage = window.tileCache.get(tileKey);
+  if (progress >= 1.0) {
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+    sanctuaryResolutionEffects(gameState, currentAction.actionResult);
+    currentAction = null;
+    if (callback) {
+      callback();
+    }
+    return;
+  }
+  image(tileImage, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+  let tileImage_notBuffer = tileImage.get();
+  //tint image and display
+  push();
+  let tintCol = color("#ffffffb4");
+  tintCol.setAlpha(255 * (progress));
+  tileImage_notBuffer.loadPixels();
+  for (let i = 0; i < tileImage_notBuffer.pixels.length; i += 4) {
+    // Apply tint by averaging original color with tint color
+    tileImage_notBuffer.pixels[i] = lerp(tileImage_notBuffer.pixels[i], red(tintCol), progress);     // R
+    tileImage_notBuffer.pixels[i + 1] = lerp(tileImage_notBuffer.pixels[i + 1], green(tintCol), progress); // G
+    tileImage_notBuffer.pixels[i + 2] = lerp(tileImage_notBuffer.pixels[i + 2], blue(tintCol), progress);  // B
+  }
+  tileImage_notBuffer.updatePixels();
+  image(tileImage_notBuffer, X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+  pop();
+}
+
+export function drawRulerMessage(gameState, cellSize, font_size) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);
+  const params = currentAction.action.parameters;
+  const message = params.text;
+  if (progress >= 1.0) {
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+    currentAction = null;
+    if (callback) {
+      callback();
+    }
+    return;
+  }
+  console.log('MSG: ', currentAction);
+  // Draw message box at center of screen
+  const boxWidth = cellSize * 6;
+  const boxHeight = cellSize * 2;
+  const boxX = (window.LAYOUT.totalWidth - boxWidth) / 2;
+  const boxY = (window.LAYOUT.totalHeight - boxHeight) / 2;
+  fill(0, 200);
+  rect(boxX, boxY, boxWidth, boxHeight, 10);
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(font_size);
+  text(message, boxX + boxWidth / 2, boxY + boxHeight / 2);
 }

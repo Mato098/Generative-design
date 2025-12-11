@@ -39,7 +39,7 @@ let textColBleed = '#808080ea';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
-import { drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo, drawTilesBless, animateUniversal} from './tileAnimations.js';
+import { drawRulerMessage, drawTilesSanctuary, drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo, drawTilesBless, animateUniversal, drawTilesReinforce} from './tileAnimations.js';
 
 // =============================================================================
 // LAYOUT DIMENSIONS (16:9 format)
@@ -311,6 +311,12 @@ function executeAnimation(action, callback) {
       animationReservedTiles.add(key);
       animateUniversal(action, duration, () => {
         animationReservedTiles.delete(key);
+        if (action.changes.success) {
+          for (const fleeingTile of action.changes.fleeing.tiles) {
+            const fleeKey = `${fleeingTile.x}-${fleeingTile.y}`;
+            tileCache.delete(fleeKey);
+          }
+        }
         callback();
       });
       break;
@@ -333,6 +339,31 @@ function executeAnimation(action, callback) {
         callback();
       });
       break;
+    case 'Reinforce':
+      currentAnimation = 'Reinforce';
+      const reinforceKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
+      animationReservedTiles.add(reinforceKey);
+      animateUniversal(action, duration, () => {
+        animationReservedTiles.delete(reinforceKey);
+        callback();
+      });
+      break;
+    case 'Sanctuary':
+      currentAnimation = 'Sanctuary';
+      const sanctuaryKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
+      animationReservedTiles.add(sanctuaryKey);
+      animateUniversal(action, duration, () => {
+        animationReservedTiles.delete(sanctuaryKey);
+        tileCache.delete(sanctuaryKey);
+        callback();
+      });
+      break;
+      case 'Message':
+        currentAnimation = 'Message';
+        animateUniversal(action, duration, () => {
+          callback();
+        });
+      break;
     default:
       console.log(`ACTION ANIM NOT IMPLEMENTED: ${actionType}, defaulting to wait`);
       currentAnimation = 'default';
@@ -346,11 +377,12 @@ function getAnimationDuration(type) {
     'Move': 1200,
     'Convert': 2000,
     'Reinforce': 2000,
-    'Construct': 3000,
+    'Construct': 2500,
     'Sanctuary': 1200,
     'Meteor': 1500,
     'Smite': 1000,
     'Bless': 2000,
+    'Message': 5000,
     'default': 1000
   };
   
@@ -726,6 +758,10 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   
   let y = 50;
   for (let i = Math.max(0, actionLog.length - 15); i < actionLog.length; i++) {
+    //replace Observer with You
+    if (actionLog[i].startsWith('Observer:')) {
+      actionLog[i] = actionLog[i].replace('Observer:', 'You:');
+    }
     buffer.text(actionLog[i], 20, y);
     y += 18;
   }
@@ -743,8 +779,11 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   }
   
   // Draw all player names in blue
-  buffer.fill(180, 180, 255);
+  buffer.fill(textCol);
+  buffer.strokeWeight(2);
+  buffer.stroke(textColBleed);
   for (const pos of messageYPositions) {
+    if (pos.msg.player === 'Observer') pos.msg.player = 'You';
     buffer.text(`${pos.msg.player}:`, 20, pos.y);
   }
   
@@ -796,10 +835,48 @@ function drawGamePanel() {
       drawTilesBless(gameState, cellSize);
     }else if (currentAnimation === 'Construct'){
       drawTilesConstruct(gameState, cellSize, font_size * 0.75);
+    }else if (currentAnimation === 'Reinforce'){
+      drawTilesReinforce(gameState, cellSize, font_size * 0.75);
+    }else if (currentAnimation === 'Sanctuary'){
+      drawTilesSanctuary(gameState, cellSize, font_size * 0.75);
     }
+    
+    // Always draw sanctuary overlays on top of everything (including animations)
+    drawAllSanctuaryOverlays(gameState, cellSize);
+
+    if (currentAnimation === 'Message'){
+      drawRulerMessage(gameState, cellSize, font_size);
+    }
+
   }
   
   pop();
+}
+
+function drawAllSanctuaryOverlays(gameState, cellSize) {
+  // Draw sanctuary overlays for ALL tiles, including those being animated
+  const currentTurn = (pendingGameState && pendingGameState.turnNumber) ? pendingGameState.turnNumber : (gameState.turnNumber || 0);
+  const gridSize = gameState.grid.length;
+  
+  for (let y = 0; y < gridSize; y++) {
+    for (let x = 0; x < gridSize; x++) {
+      const tile = gameState.grid[y][x];
+      const sanctuaryTurns = tile.effects && tile.effects.sanctuary ? Math.max(0, tile.effects.sanctuary - currentTurn) : 0;
+      
+      if (sanctuaryTurns > 0) {
+        // Calculate screen position (same logic as drawGameGrid)
+        let screenX = x * (cellSize + LAYOUT.totalWidth * 0.05/16) + LAYOUT.totalWidth * 0.025/16;
+        let screenY = y * cellSize + LAYOUT.totalHeight * 0.1/9;
+        
+        // Apply same movement animation as in drawGameGrid
+        screenX += Math.sin(frameCount * 0.005 + x + y);
+        screenY += Math.cos(frameCount * 0.018 + x + y);
+        
+        // Draw sanctuary overlay on top of everything
+        drawSanctuaryOverlay(screenX, screenY, cellSize, sanctuaryTurns, tile);
+      }
+    }
+  }
 }
 
 function drawGameGrid() {
@@ -813,7 +890,7 @@ function drawGameGrid() {
       const tile = gameState.grid[y][x];
       const tileKey = `${x}-${y}`;
       
-      // Create simple content hash for this tile
+      // Create simple content hash for this tile - sanctuary effects handled separately
       const tileHash = `${tile.owner}-${tile.troop_power}-${tile.building}`;
       const cachedTile = tileCache.get(tileKey);
       
@@ -852,6 +929,45 @@ function drawGameGrid() {
   }
 }
 
+function drawSanctuaryOverlay(x, y, cellSize, sanctuaryTurns, tile) {
+  // Draw sanctuary protection overlay on top of cached tile
+  let agent_letter = tile.owner ? tile.owner[tile.owner.length -1] : null;
+  let agent_color = agents_color_map[agent_letter] || '#b4b4b4ff';
+  
+  push();
+  textFont(text_font);
+  textSize(font_size * 0.75);
+  fill(agent_color);
+  strokeWeight(3);
+  stroke(bleedLerpColor(color(agent_color)));
+  textAlign(LEFT, TOP);
+  
+  const charWidth = textWidth('#');
+  const charHeight = textAscent() + textDescent();
+  const charsHorizontal = Math.floor(cellSize / charWidth);
+  const charsVertical = Math.ceil(cellSize / charHeight);
+  
+  // Sanctuary borders
+  let horiz = String(sanctuaryTurns);
+  let vert = '#';
+  let tl = '#', tr = '#', bl = '#', br = '#';
+  
+  let topBorder = tl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + tr;
+  let bottomBorder = bl + horiz.repeat(Math.max(0, charsHorizontal - 2)) + br;
+  
+  // Draw sanctuary borders over the cached tile
+  text(topBorder, x, y);
+  text(bottomBorder, x, y + cellSize - charHeight);
+  
+  // Draw vertical borders
+  for (let i = 1; i < charsVertical - 1; i++) {
+    text(vert, x, y + i * charHeight);
+    text(vert, x + cellSize - charWidth, y + i * charHeight);
+  }
+  
+  pop();
+}
+
 function renderTileToBuffer(buffer, tile, cellSize) {
   // Render tile to graphics buffer for caching - clone of draw_border_ascii version
   buffer.background(0, 0); // Transparent background
@@ -880,7 +996,7 @@ function renderTileToBuffer(buffer, tile, cellSize) {
     }
   }
   
-  // Use draw_border_ascii equivalent in buffer
+  // Use normal borders - sanctuary will be overlaid separately
   let horiz = '~';
   let vert = '|';
   let tl = '*', tr = '*', bl = '*', br = '*';
@@ -912,7 +1028,11 @@ function renderTileToBuffer(buffer, tile, cellSize) {
   if (tile.troop_power > 0) {
     buffer.fill(255);
     buffer.textAlign(CENTER, CENTER);
-    buffer.text(Math.floor(tile.troop_power), cellSize/2, cellSize/2);
+    let powerString = Math.floor(tile.troop_power).toString();
+    if (floor(tile.troop_power) < tile.troop_power) {
+      powerString += '.';
+    }
+    buffer.text(powerString, cellSize/2, cellSize/2);
   }
 
   if (tile.building != 'none') {
@@ -1008,14 +1128,19 @@ function drawControlsPanel() {
   translate(panel.x, panel.y);
   
   // TODO: Draw observer power buttons
-  fill(255);
+  fill(textCol);
+  strokeWeight(2);
+  stroke(textColBleed);
   text('Your Powers', window.LAYOUT.rightPanel.width * 0.1, window.LAYOUT.rightPanel.height * 0.05);
   
   // Pause/Resume button
   const pauseButton = pauseButtonLayout;
   fill(animationPaused ? 100 : 60);
+  noStroke();
   rect(pauseButton.x, pauseButton.y, pauseButton.w, pauseButton.h);
-  fill(255);
+  fill(textCol);
+  strokeWeight(2);
+  stroke(textColBleed);
   textAlign(CENTER, CENTER);
   text(animationPaused ? 'Resume' : 'Pause', pauseButton.x + pauseButton.w/2, pauseButton.y + pauseButton.h/2);
   textAlign(LEFT);
@@ -1117,9 +1242,11 @@ function drawTextBox() {
   const {x: buttonX, y: buttonY, w: buttonW, h: buttonH} = getSendButtonLayout();
   
   if (textBoxContent.trim().length > 0) {
-    draw_border_ascii(buttonX, buttonY, buttonW, buttonH+10, '=I****', '#007b00ff', true, font_size, 0.5);
+    draw_border_ascii(buttonX, buttonY, buttonW, buttonH+10, '=I****', framesCol, true, font_size, 0.5);
   
-    fill(255);
+    fill(textCol);
+    strokeWeight(2);
+    stroke(textColBleed);
     textAlign(CENTER, CENTER);
     text("Send", buttonX + buttonW/2, buttonY + buttonH/2);
   } 
@@ -1133,6 +1260,7 @@ function drawObserverButtons() {
   
   for (const button of buttons) {
     // Button background
+    noStroke();
     if (selectedObserverAction === button.name) {
       fill(100, 200, 100); // Green if selected
     } else {
@@ -1141,7 +1269,9 @@ function drawObserverButtons() {
     rect(button.x, button.y, button.w, button.h);
     
     // Button text
-    fill(255);
+    fill(textCol);
+    strokeWeight(2);
+    stroke(textColBleed);
     textAlign(CENTER, CENTER);
     text(button.name, button.x + button.w/2, button.y + button.h/2);
   }
@@ -1358,7 +1488,8 @@ function startGame() {
   // Default agent configuration with new personality system
   const agentConfig = [
     { name: 'Faction A', personality: 'zealot' },
-    { name: 'Faction B', personality: 'skeptic' }
+    { name: 'Faction B', personality: 'skeptic' },
+    { name: 'Faction C', personality: 'peasant' }
   ];
   
   fetch('/api/game/start', {
@@ -1420,6 +1551,20 @@ function keyPressed() {
     }
     return; // Don't process other keys when text box is active
   }
+  if (key == 's'){
+      console.log('Sanctuary test');
+      //test sanctuary of tile, create fake action
+      let sanctuarykey = `${4}-${4}`;
+      animationReservedTiles.add(sanctuarykey);
+      currentAnimation = 'Sanctuary';
+      let action = {
+        action: {
+         type: 'Sanctuary', parameters: {x:4, y:4}
+        }
+      };
+      animationQueue.push(action);
+      processAnimationQueue();
+    }
 }
 
 function bleedLerpColor(col, amount = 0.7) {

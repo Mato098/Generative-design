@@ -2,7 +2,7 @@ export class Tile {
   constructor(x, y, type = 'plains') {
     this.x = x;
     this.y = y;
-    this.owner = 'Neutral'; // 'Faction A', 'Faction B', 'Neutral'
+    this.owner = 'Neutral'; // Any faction name or 'Neutral'
     this.type = type; // 'plains', 'forest', 'hill', 'ruin', 'sacred'
     this.troop_power = 1.0; // Neutral tiles start with 1 troop
     this.building = 'none'; // 'none', 'Shrine', 'Idol', 'Training', 'Market', 'Tower', 'Fortress'

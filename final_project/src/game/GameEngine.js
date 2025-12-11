@@ -4,6 +4,11 @@ import { AIAgent } from '../ai/AIAgent.js';
 import { PersonalityEvolver } from '../ai/PersonalityEvolver.js';
 import { evalAttackOutcome, isAttack } from '../../public/CombatUtils.js';
 
+// Utility function to clamp a value between min and max
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export class GameEngine {
   constructor() {
     this.gameState = new GameState();
@@ -49,21 +54,48 @@ export class GameEngine {
 
   initializeStartingPositions() {
     const factionNames = Array.from(this.agents.keys());
-    
-    // Place starting units for each faction in corners
-    const startingPositions = [
-      [1, 1], // Faction A
-      [8, 8], // Faction B
-      [1, 8], // Faction C (if exists)
-      [8, 1]  // Faction D (if exists)
+    const n = factionNames.length;
+    const gridSize = 10;
+    // Predefined corners for up to 4
+    const defaultPositions = [
+      [1, 1],
+      [8, 8],
+      [1, 8],
+      [8, 1]
     ];
-    
-    for (let i = 0; i < factionNames.length && i < startingPositions.length; i++) {
-      const [x, y] = startingPositions[i];
+    let used = new Set();
+    for (let i = 0; i < n; i++) {
+      let x, y;
+      if (i < defaultPositions.length) {
+        [x, y] = defaultPositions[i];
+      } else {
+        // For >4, spread around the edge, skipping already used
+        // Place at (i,1), (1,i), (i,8), (8,i), etc.
+        let found = false;
+        for (let d = 1; d < gridSize-1 && !found; d++) {
+          const candidates = [
+            [d, 1], [1, d], [d, gridSize-2], [gridSize-2, d]
+          ];
+          for (const [cx, cy] of candidates) {
+            const key = `${cx},${cy}`;
+            if (!used.has(key)) {
+              x = cx; y = cy; used.add(key); found = true; break;
+            }
+          }
+        }
+        if (!found) {
+          // Fallback: random empty tile
+          do {
+            x = Math.floor(Math.random() * (gridSize-2)) + 1;
+            y = Math.floor(Math.random() * (gridSize-2)) + 1;
+          } while (used.has(`${x},${y}`));
+        }
+      }
+      used.add(`${x},${y}`);
       const tile = this.gameState.getTile(x, y);
       if (tile) {
         tile.owner = factionNames[i];
-        tile.troop_power = 10; // Starting troops
+        tile.troop_power = 10;
       }
     }
   }
@@ -86,6 +118,11 @@ export class GameEngine {
       }
       
       const currentFaction = this.gameState.getCurrentPlayer();
+      
+      // Reset turn-specific tracking
+      if (!currentFaction.turnData) currentFaction.turnData = {};
+      currentFaction.turnData.troopsRecruitedThisTurn = 0;
+      
       currentFaction.startTurn();
       
       // Get AI agent and process turn
@@ -343,28 +380,53 @@ export class GameEngine {
     const faction = this.gameState.factions.get(playerName);
     const amount = action.parameters.amount || 1;
     
+    // Initialize turn recruitment tracking if needed
+    if (!faction.turnData) faction.turnData = {};
+    if (!faction.turnData.troopsRecruitedThisTurn) faction.turnData.troopsRecruitedThisTurn = 0;
+    
+    // Calculate cost with diminishing returns
+    let totalCost = 0;
+    let currentRecruitCount = faction.turnData.troopsRecruitedThisTurn;
+    
+    for (let i = 0; i < amount; i++) {
+      let costPerTroop;
+      if (currentRecruitCount < 5) {
+        costPerTroop = 1;
+      } else if (currentRecruitCount < 10) {
+        costPerTroop = 2;
+      } else {
+        costPerTroop = 3;
+      }
+      totalCost += costPerTroop;
+      currentRecruitCount++;
+    }
+    
     // DEBUG: Before state
     console.log(`   🛡️ RECRUIT (${action.parameters.x},${action.parameters.y}) amount: ${amount}`);
     console.log(`    Tile state: troops=${tile.troop_power.toFixed(1)}, owner=${tile.owner}, building=${tile.building || 'none'}`);
     console.log(`    ${playerName} resources: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}`);
+    console.log(`    Turn recruitment: ${faction.turnData.troopsRecruitedThisTurn} already recruited, cost for ${amount}: ${totalCost}R`);
     
-    const cost = amount; // 1R per troop
-    faction.spendResources({ R: cost });
+    faction.spendResources({ R: totalCost });
     const oldPower = tile.troop_power;
     const trainingBonus = tile.building === 'Training' ? amount : 0; // Bonus equal to amount if Training
     const totalGain = amount + trainingBonus;
     tile.troop_power += totalGain;
-    tile.troop_power = Math.min(tile.troop_power, 50); // Cap at 50
+    tile.troop_power = Math.min(tile.troop_power, 20); // New hard cap at 20
+    
+    // Track recruitment for this turn
+    faction.turnData.troopsRecruitedThisTurn += amount;
     
     console.log(`    Troop recruitment: +${totalGain} (${amount} base${trainingBonus > 0 ? ` + ${trainingBonus} Training bonus` : ''})`);
-    console.log(`    Troops: ${oldPower.toFixed(1)}→${tile.troop_power.toFixed(1)} (cost: ${cost}R)`);
+    console.log(`    Troops: ${oldPower.toFixed(1)}→${tile.troop_power.toFixed(1)} (cost: ${totalCost}R)`);
     console.log(`    ${playerName} resources after: R=${faction.resources.R.toFixed(1)}, F=${faction.resources.F.toFixed(1)}`);
     
     return {
       type: 'troop_power_change',
       tile: { x: tile.x, y: tile.y },
       oldValue: oldPower,
-      newValue: tile.troop_power
+      newValue: tile.troop_power,
+      cost: totalCost
     };
   }
 
@@ -377,26 +439,48 @@ export class GameEngine {
     const { fromX, fromY, targetX, targetY, troops } = action.parameters;
     const sourceTile = this.gameState.getTile(fromX, fromY);
     const targetTile = this.gameState.getTile(targetX, targetY);
-    const troopsToMove = Math.min(troops, sourceTile.troop_power);
+    const requestedTroops = Math.min(troops, sourceTile.troop_power);
     
     // Determine if this is an attack or troop movement
     if (targetTile.owner === playerName) {
-      // Troop movement between own tiles
-      console.log(`   🚛 MOVE TROOPS from (${fromX},${fromY}) to (${targetX},${targetY}): ${troopsToMove} troops`);
+      // Troop movement between own tiles - handle capacity intelligently
+      const targetCapacity = 20 - targetTile.troop_power;
+      const actualTroopsToMove = Math.min(requestedTroops, targetCapacity);
       
-      sourceTile.troop_power -= troopsToMove;
-      targetTile.troop_power += troopsToMove;
+      console.log(`   🚛 MOVE TROOPS from (${fromX},${fromY}) to (${targetX},${targetY}): ${actualTroopsToMove}/${requestedTroops} troops`);
+      
+      if (actualTroopsToMove <= 0) {
+        console.log(`   ⚠️ No troops moved - target tile at capacity`);
+        return {
+          success: true,
+          type: 'move_failed',
+          reason: 'target_at_capacity',
+          from: { x: fromX, y: fromY },
+          target: { x: targetX, y: targetY },
+          blurb: action.parameters.blurb || 'Could not move - target at capacity!'
+        };
+      }
+      
+      sourceTile.troop_power -= actualTroopsToMove;
+      targetTile.troop_power += actualTroopsToMove;
+      
+      const blurb = actualTroopsToMove < requestedTroops ? 
+        `Moved ${actualTroopsToMove}/${requestedTroops} troops (capacity limit)` :
+        action.parameters.blurb || 'Troops moved!';
       
       return {
         success: true,
         type: 'move_troops',
         from: { x: fromX, y: fromY },
         target: { x: targetX, y: targetY },
-        troopsMoved: troopsToMove,
-        blurb: action.parameters.blurb || 'Troops moved!'
+        troopsMoved: actualTroopsToMove,
+        requestedTroops,
+        partialMove: actualTroopsToMove < requestedTroops,
+        blurb
       };
     } else {
       // Attack on enemy/neutral tile
+      const troopsToMove = requestedTroops;
       console.log(`   ⚔️  ATTACK from (${fromX},${fromY}) → (${targetX},${targetY}): ${troopsToMove} troops`);
       
       const attackPower = troopsToMove;
@@ -454,12 +538,16 @@ export class GameEngine {
     
     const faithCost = 3; // Increased since no Influence cost
     faction.spendResources({ F: faithCost });
-    
-    // Faith-based conversion is more reliable
-    const conversionChance = Math.min(0.9, 0.6 + (faction.resources.F * 0.05));
+
+    const defenders = tile.troop_power;
+    const base = 0.8;                 // 80% base on empty tile
+    const defensePenalty = defenders * 0.04;  // -4% per defender
+    const fBonus = Math.log1p(faction.resources.F) * 0.05; // diminishing returns of having more faith
+
+    const conversionChance = clamp(base - defensePenalty + fBonus, 0.05, 0.95);
     const success = Math.random() < conversionChance;
     
-    if (success && tile.owner !== playerName) {
+    if (success && tile.owner !== playerName && tile.effects?.sanctuary && tile.effects.sanctuary < this.gameState.turnNumber) {
       //troops on that tile must flee to adjacent tiles or be lost
       let adjacentTiles = this.gameState.getAdjacentTiles(tile.x, tile.y);
       adjacentTiles = adjacentTiles.filter(t => t.owner === tile.owner);
@@ -595,20 +683,18 @@ export class GameEngine {
       action: action,
       changes: changes
     };
-    
-    // Add to context for AI agents
-    this.gameState.addObserverAction(action);
-    
-    // Only trigger personality evolution for divine interventions, not game state changes
-    const evolutionTriggeringActions = ['Smite', 'Bless', 'Meteor'];
-    if (evolutionTriggeringActions.includes(action.type)) {
-      // Store the evolution promise so AI turns can wait for it
+
+    // Only store relevant observer actions (not Pause/Resume)
+    const skipTypes = ['Pause', 'Resume'];
+    if (!skipTypes.includes(action.type)) {
+      this.gameState.addObserverAction(action);
+      // Only trigger personality evolution for relevant actions
       this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
         console.error('❌ Error evolving personalities:', err);
         this.pendingPersonalityEvolution = null;
       });
     }
-    
+
     return result;
   }
 
@@ -673,11 +759,17 @@ export class GameEngine {
         // Observer sending a message to all agents
         const messageText = action.parameters.text;
         console.log(`💬 Observer message: "${messageText}"`);
-        this.gameState.addObserverAction({
-          type: 'message',
-          text: messageText,
-          turn: this.gameState.turnNumber
-        });
+        // Only add if not already present for this turn and text
+        const alreadyLogged = this.gameState.observerActions.some(
+          a => a.type === 'message' && a.text === messageText && a.turn === this.gameState.turnNumber
+        );
+        if (!alreadyLogged) {
+          this.gameState.addObserverAction({
+            type: 'message',
+            text: messageText,
+            turn: this.gameState.turnNumber
+          });
+        }
         return { type: 'message', text: messageText };
       
       default:
@@ -688,12 +780,13 @@ export class GameEngine {
   async evolvePersonalitiesAfterDivineEvent(divineAction) {
     try {
       // Get target faction if action affects a specific tile
-      let targetFaction = null;
+      let targetFactions = null;
       if (divineAction.parameters && 
           (divineAction.parameters.x !== undefined && divineAction.parameters.y !== undefined)) {
-        targetFaction = PersonalityEvolver.getTargetFaction(this.gameState, 
+        targetFactions = PersonalityEvolver.getTargetFactions(this.gameState, 
                                                           divineAction.parameters.x, 
-                                                          divineAction.parameters.y);
+                                                          divineAction.parameters.y, 
+                                                        divineAction.type);
       }
 
       // Extract current personalities from all agents
@@ -720,7 +813,7 @@ export class GameEngine {
       const evolvedEssence = await this.personalityEvolver.evolvePersonalities(
         personalityEssence, 
         divineAction, 
-        targetFaction
+        targetFactions
       );
 
       // Merge evolved changes back into full personality objects

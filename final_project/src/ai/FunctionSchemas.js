@@ -57,7 +57,7 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "recruit",
-      description: "Recruit troops on ANY owned tile! Costs 1R per troop. Build your army everywhere! Training building doubles recruitment.",
+      description: "Recruit troops on ANY owned tile! Costs 1R per troop for first 5 in turn, then 2R for next 5, then 3R. Training building doubles recruited troops.",
       parameters: {
         type: "object",
         properties: {
@@ -76,7 +76,7 @@ export const GAME_FUNCTION_SCHEMAS = [
           amount: {
             type: "number",
             minimum: 1,
-            description: "Number of troops to recruit (costs 1R each, doubled with Training building). Default: 1"
+            description: "Number of troops to recruit (costs 1R each for first 5, then 2R for next 5, then 3R. Doubled with Training building). Default: 1"
           },
           blurb: {
             type: "string",
@@ -200,7 +200,7 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "sanctuary",
-      description: "Use Faith to protect tile from attack for 2 turns. Costs 4F.",
+      description: "Use Faith to protect tile from attack or conversion for 2 turns.",
       parameters: {
         type: "object",
         properties: {
@@ -229,18 +229,18 @@ export const GAME_FUNCTION_SCHEMAS = [
     type: "function",
     function: {
       name: "send_message",
-      description: "Send a diplomatic message or declaration to other rulers",
+      description: "Send a diplomatic message or declaration to other rulers, or pray",
       parameters: {
         type: "object",
         properties: {
           message: {
             type: "string",
-            description: "Your message or declaration to other players"
+            description: "Your message or declaration to other players, or a prayer"
           },
           target: {
             type: "string",
-            description: "Target faction name or 'all' for global message",
-            enum: ["all", "Faction A", "Faction B", "Observer"]
+            description: "Target faction name, 'all' for global message, or 'Observer' (actual list is dynamic)",
+            example: "Faction A" // This is just an example; actual valid values are provided at runtime
           }
         },
         required: ["message"]

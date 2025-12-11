@@ -131,12 +131,20 @@ RULES:
 - Move: Send troops to adjacent tile (attack enemies/neutrals, relocate on your tiles)
 - Recruit: Add troops to ANY owned tile (costs 1R per troop) - BUILD YOUR ARMY!
 - Convert: Take adjacent tile with Faith (costs 3F). enemy troops flee to adjacent tiles, eliminated if no space
-- Construct: Build on YOUR tiles (costs R) - Shrine/Idol(+F), Market(+R), Tower/Fortress(defense)
+- Construct: Build on YOUR tiles (costs R) - see building details below
 - Sanctuary: Protect tile from attacks for 2 turns (costs 4F)
 - Send_message: Broadcast to all factions or pray to divine powers
 - Income: Each tile gives 1R per turn, Shrine/sacred give +F (faith is scarce!)
 - Only act on/from tiles you own (marked with your letter on map)
 - Adjacent = up/down/left/right only
+
+BUILDINGS (construct costs and effects):
+- Shrine: 5R → +1 Faith per turn (essential for conversions & sanctuary)
+- Idol: 1R, 2F → +1 Faith per turn (cheaper faith generation)
+- Market: 3R → +1 Resources per turn (economic boost)
+- Tower: 4R → +40% defense multiplier (moderate protection)
+- Fortress: 6R → +80% defense multiplier (strong protection) 
+- Training: 4R → enables recruitment efficiency (building benefit varies)
 
 Your strategy and decisions should be heavily influenced by your personality.
 
@@ -173,19 +181,6 @@ Divine powers may intervene.`;
     return basicPrompts[this.personality] || basicPrompts.opportunist;
   }
 
-  getPersonalitySpeechInstructions() {
-    if (!this.personality) return 'Speak dramatically and decisively.';
-    
-    const personalityData = PersonalityEngine.getPersonality(this.personality);
-    
-    if (personalityData && personalityData.behavioral_tendencies) {
-      const style = personalityData.behavioral_tendencies.communication_style;
-      return 'Communication style: ' + style;
-    }
-    
-    return 'Speak dramatically and decisively.';
-  }
-
   buildContextMessage(context) {
     const { gameState, playerResources, ownedTiles, turnNumber, observerActionsLastTurn } = context;
     
@@ -199,12 +194,22 @@ YOUR CURRENT RESOURCES:
 - Faith: ${playerResources.F.toFixed(0)}F (for conversions, sanctuary)
 
 ACTION COSTS REMINDER:
-- Recruit: 1R per troop (can recruit on ANY owned tile!)
+- Recruit: 1R for first 5 troops/turn, 2R for next 5, then 3R each (diminishing returns!)
 - Move: FREE (attack or relocate troops)
 - Convert: 3F
-- Construct: 3-6R (Shrine 5R, Market 3R, etc)
+- Construct Buildings:
+  • Shrine: 5R (produces +1F/turn)
+  • Market: 4R (produces +1R/turn) 
+  • Tower: 5R (defense x1.4 multiplier)
+  • Fortress: 10R (defense x1.8 multiplier)
+  • Idol: 3R + 2F (produces +1F/turn)
+  • Training: 5R (doubles recruitment - gives bonus troops equal to amount recruited)
 - Sanctuary: 4F (protection for 2 turns)
 - send_message: FREE
+
+BALANCE NOTES:
+• Max 20 troops per tile (hard cap)
+• Defense has diminishing returns: full power up to 10 troops, then 25% effectiveness above
 
 ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
 
@@ -225,7 +230,7 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
   }
 
   buildGridVisualization(grid) {
-    let visualization = 'MAP (each cell: owner+troops+building):\n';
+    let visualization = 'MAP (each cell: owner,troops,building):\n';
     visualization += '   0123456789\n';
     visualization += 'your tiles marked with your faction letter ' + this.name.slice(-1) + '\n';
     
@@ -244,10 +249,12 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
           symbol = tile.owner.slice(-1); // Other faction letter
         }
         
-        // Add troop count (0-9, or + for 10+)
+        // Add exact troop count for better AI decision making
         const troops = Math.floor(tile.troop_power);
-        if (troops >= 10) {
-          symbol += '+';
+        if (troops >= 100) {
+          symbol += '99+'; // Cap display at 99+
+        } else if (troops >= 10) {
+          symbol += troops.toString();
         } else {
           symbol += troops.toString();
         }
@@ -257,17 +264,19 @@ ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
         else if (tile.building === 'Fortress') symbol += 'F';
         else if (tile.building === 'Tower') symbol += 'T';
         else if (tile.building === 'Market') symbol += 'M';
+        else if (tile.building === 'Training') symbol += 'R'; // R for Recruitment
+        else if (tile.building === 'Idol') symbol += 'I';
         else if (tile.type === 'sacred') symbol += '☼';
         else symbol += '-';
         
-        // Pad to 3 chars max, truncate if longer
-        symbol = (symbol + '   ').substring(0, 4);
+        // Pad to 4 chars max, truncate if longer
+        symbol = (symbol + '    ').substring(0, 4);
         visualization += symbol;
       }
       visualization += '\n';
     }
     
-    visualization += 'Legend: A/B=factions, N=neutral, 0-9/+=troops, S/F/T/M=building, ☼=sacred\n\n';
+    visualization += 'Legend: A/B=factions, N=neutral, numbers=troops, S(shrine)/F(fortress)/T(tower)/M(market)/R(recruitment)/I(idol)=buildings\n';
     return visualization;
   }
 

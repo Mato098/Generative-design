@@ -7,13 +7,33 @@
  * @param {Object} sourceTile - The source tile object with total troop_power
  * @returns {Object} - {victorystatus: 'victory'|'defeat', newSourceTroops, newTargetTroops}
  */
+/**
+ * Calculate effective defense power with diminishing returns after 10 troops
+ * @param {number} troopPower - Raw troop count on tile
+ * @returns {number} - Effective defense power
+ */
+export function calculateEffectiveDefense(troopPower) {
+  if (troopPower <= 10) {
+    return troopPower;
+  } else {
+    return 10 + (troopPower - 10) * 0.25;
+  }
+}
+
 export function evalAttackOutcome(attackPower, defendTile, sourceTile) {
-  const baseDefense = defendTile.troop_power;
+  const baseDefense = calculateEffectiveDefense(defendTile.troop_power);
   const hillBonus = defendTile.type === 'hill' ? 2 : 0;
   const sacredBonus = defendTile.type === 'sacred' ? 3 : 0;
-  const fortressBonus = defendTile.building === 'Fortress' ? 5 : 0;
-  const towerBonus = defendTile.building === 'Tower' ? 2 : 0;
-  const defensePower = baseDefense + hillBonus + sacredBonus + fortressBonus + towerBonus;
+  
+  // Defense buildings provide multipliers now instead of flat bonuses
+  let defenseMultiplier = 1.0;
+  if (defendTile.building === 'Fortress') {
+    defenseMultiplier = 1.8; // 80% defense bonus
+  } else if (defendTile.building === 'Tower') {
+    defenseMultiplier = 1.4; // 40% defense bonus
+  }
+  
+  const defensePower = (baseDefense + hillBonus + sacredBonus) * defenseMultiplier;
 
   const attackRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
   const defenseRoll = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
