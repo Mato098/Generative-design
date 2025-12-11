@@ -1199,7 +1199,7 @@ function renderInfoPanelToBuffer(buffer, panel) {
     }
   }
 
-  if (personalityEvolving) buffer.text('Rulers are thinking...', panel.width * 0.5, panel.height - 30);
+  if (personalityEvolving) buffer.text('Rulers are thinking...', panel.width * 0.45, panel.height - 30);
   
 }
 
