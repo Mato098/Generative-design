@@ -74,24 +74,36 @@ CURRENT PERSONALITIES:
 ${JSON.stringify(personalities, null, 2)}
 
 EVOLUTION TASK:
-Based on this divine intervention, evolve each AI personality slightly. Consider:
+Evolve each AI personality in response to this divine intervention. All changes must preserve core identity while shifting worldview, behavior, and speech style based on the event.
 
-1. DIRECT TARGET${Array.isArray(targetFaction) ? 'S' : ''} (${directTargetText}): How does being personally targeted/spared change them?
-2. WITNESSES: How do other factions react to seeing someone else targeted by divine power?
-3. PERSONALITY CONSISTENCY: Keep core traits but allow meaningful growth based on their relationship to the target(s)
-4. RELATIONSHIP DYNAMICS: How might their view of the divine entity change based on who was targeted and why?
+CONSIDER:
+1. DIRECT TARGET${Array.isArray(targetFaction) ? 'S' : ''} (${directTargetText}):
+   How does being personally targeted or spared alter their confidence, tone, beliefs, or speech defects?
+
+2. WITNESSES:
+   How do factions adjust their mannerisms, reasoning style, or rhetorical tendencies when they watch others judged by divine power?
+
+3. PERSONALITY CONSISTENCY:
+   Core identity must remain intact, but growth should be meaningful—affecting worldview, decision logic, emotional tone, or linguistic quirks.
+
+4. RELATIONSHIP DYNAMICS:
+   How does their relationship to the divine entity shift?
+   Fear? Reverence? Doubt? Opportunism? Pride? Humiliation?
 
 EVOLUTION GUIDELINES:
-- Changes to personality_prompt (1-2 sentence modifications)
-- Possible additions to core_beliefs if worldview shifts based on targeting patterns
-- possible changes to speech patterns/defects
-- Changes to authority_relationship based on divine favoritism or wrath
-- Keep the same JSON structure
-- Each faction should react according to their existing nature AND their relationship to the target(s)
-- Consider: Was this fair? Deserved? Random? What does this say about the divine entity's judgment?
-- do not change the faction tags(Faction A), or their names(name: ...)
-
-Return the evolved personalities as valid JSON`;
+- Modify personality_prompt (1–2 sentences per faction), focusing on:
+  • evolution of speech patterns
+  • intensification or weakening of quirks
+  • shifts in certainty, confidence, or tone
+  • new constraints or defects (e.g., hesitations, ritual phrases, clipped logic, manic spirals)
+- Update core_beliefs if worldview changes.
+- Adjust decision_style or authority_relationship if their stance toward divine judgment shifts.
+- Maintain the same JSON structure and original faction tags and names.
+- Each faction reacts according to both:
+  • its intrinsic nature
+  • its relationship to the target(s)
+- Evaluate perceived fairness, justice, favoritism, or randomness of the intervention.
+- All output must be valid JSON.`;
   }
 
   describeDivineEvent(divineEvent, targetFaction) {

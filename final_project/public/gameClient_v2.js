@@ -127,6 +127,13 @@ function preload(){
 function setup() {
   createCanvas(LAYOUT.totalWidth, LAYOUT.totalHeight);
   connectToServer();
+
+  window.addEventListener("beforeunload", () => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "clientReloading" }));
+  }
+});
+
   //textFont(font);
   textSize(font_size);
   background('#533131ff');
@@ -1574,7 +1581,8 @@ function startGame() {
   const agentConfig = [
     { name: 'Faction A', personality: 'zealot' },
     { name: 'Faction B', personality: 'skeptic' },
-    { name: 'Faction C', personality: 'peasant' }
+    { name: 'Faction C', personality: 'peasant' },
+    { name: 'Faction D', personality: 'madman' }
   ];
   
   fetch('/api/game/start', {

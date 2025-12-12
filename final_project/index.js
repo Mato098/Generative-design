@@ -8,6 +8,8 @@ import { dirname, join } from 'path';
 import cors from 'cors';
 import { GameEngine } from './src/game/GameEngine.js';
 import { ObserverInterface } from './src/observer/ObserverInterface.js';
+import { exec } from 'child_process';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,6 +44,16 @@ wss.on('connection', (ws) => {
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
+
+      if (data.type === 'clientReloading') {
+        console.log('🔄 Client requested server restart');
+        exec('pm2 restart game-server', (err) => {
+        if (err) {
+          console.error('PM2 restart failed:', err);
+        }
+      });
+      return;
+    }
       
       if (data.type === 'observerAction') {
         console.log(`⚡ Observer used ${data.action.type}:`, JSON.stringify(data.action.parameters));
