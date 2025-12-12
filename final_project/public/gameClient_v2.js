@@ -6,6 +6,7 @@
 // =============================================================================
 let socket = null;
 let gameState = null;
+let particleManager = null;
 let animationQueue = [];
 let isAnimating = false;
 let animationPaused = false;
@@ -17,12 +18,16 @@ let animationReservedTiles = new Set(); // Tiles currently being animated
 let pendingGameState = null; // Game state to apply after animations complete
 const MAX_LOG_ENTRIES = 10;
 
+let mouseVelocity = { x: 0, y: 0 };
+
 let tileRealLocations = new Map(); // Map tile keys to real pixel locations
 
 let hoveredTileKey = null;
 let hoveredTileInfo = null;
+let tooltipTileHoverStart = 0;
 
 let personalityEvolving = false;
+let personalityEvolvingInfoPanelLastRefresh = 0;
 
 // Tile caching for performance
 let tileCache = new Map(); // Cache rendered tiles
@@ -46,7 +51,9 @@ let textColBleed = '#808080ea';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
-import { drawRulerMessage, drawTilesSanctuary, drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo, drawTilesBless, animateUniversal, drawTilesReinforce} from './tileAnimations.js';
+import { drawSmite, clearAnims, drawRulerMessage, drawTilesSanctuary, drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo, drawTilesBless, animateUniversal, drawTilesReinforce} from './tileAnimations.js';
+import { ParticleManager } from './ParticleManager.js';
+import { DragEffector, FireballEffector } from './ParticleBase.js';
 
 // =============================================================================
 // LAYOUT DIMENSIONS (16:9 format)
@@ -111,6 +118,7 @@ let buttons = [
 let pauseButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.1, y: LAYOUT.rightPanel.controlsSection.height * 0.25, w: 80, h: 30 };
 let startButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.4, y: LAYOUT.rightPanel.controlsSection.height * 0.25, w: LAYOUT.rightPanel.controlsSection.width * 0.515, h: 30 };
 let textBoxLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.095, y: LAYOUT.rightPanel.controlsSection.height * 0.33, w: LAYOUT.rightPanel.controlsSection.width * 0.84, h: 50 };
+let restartButtonLayout = { x: LAYOUT.rightPanel.controlsSection.width * 0.75, y: LAYOUT.rightPanel.controlsSection.height * 0.855, w: LAYOUT.rightPanel.controlsSection.width * 0.2, h: 30 };
 
 let lines_font;
 let text_font;
@@ -128,12 +136,6 @@ function setup() {
   createCanvas(LAYOUT.totalWidth, LAYOUT.totalHeight);
   connectToServer();
 
-  window.addEventListener("beforeunload", () => {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "clientReloading" }));
-  }
-});
-
   //textFont(font);
   textSize(font_size);
   background('#533131ff');
@@ -145,6 +147,9 @@ function setup() {
   window.text_font = text_font;
   window.font_size = font_size;
   window.renderTileToBuffer = renderTileToBuffer;
+  window.particleManager = particleManager;
+
+  particleManager = new ParticleManager();
 
   cursor('./gauntletCursor/outlines/cursor_outline_white.png')
   //cursor('./gauntletCursor/cursor_final.png');
@@ -347,15 +352,6 @@ function executeAnimation(action, callback) {
       });
       break;
 
-    case 'Bless':
-      currentAnimation = 'Bless';
-      const blessKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
-      animationReservedTiles.add(blessKey);
-      animateUniversal(action, duration, () => {
-        animationReservedTiles.delete(blessKey);
-        callback();
-      });
-      break;
     case 'Construct':
       currentAnimation = 'Construct';
       const constructKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
@@ -390,6 +386,21 @@ function executeAnimation(action, callback) {
           callback();
         });
       break;
+      case 'Bless':
+        currentAnimation = 'Bless';
+        const blessKey = `${action.action.parameters.x}-${action.action.parameters.y}`;
+        animationReservedTiles.add(blessKey);
+        animateUniversal(action, duration, () => {
+          animationReservedTiles.delete(blessKey);
+          callback();
+        });
+      break;
+      case 'Smite':
+        currentAnimation = 'Smite';
+        animateUniversal(action, duration, () => {
+          callback();
+        });
+      break;
     default:
       console.log(`ACTION ANIM NOT IMPLEMENTED: ${actionType}, defaulting to wait`);
       currentAnimation = 'default';
@@ -415,7 +426,7 @@ function getAnimationDuration(type, messageText='') {
   if (type === 'Message') {
     // 50ms per character, min 1500ms, max 8000ms
     const base = 1500;
-    const perChar = 100;
+    const perChar = 75;
     const max = 20000;
     if (typeof messageText === 'string') {
       return Math.max(base, Math.min(max, base + messageText.length * perChar));
@@ -564,6 +575,7 @@ function draw() {
   const msgEnd = performance.now();
   
   const infoStart = performance.now();
+  if (personalityEvolving && millis() - personalityEvolvingInfoPanelLastRefresh > 500) infoPanelCacheInvalid = true;
   drawInfoPanel();
   const infoEnd = performance.now();
   
@@ -580,6 +592,9 @@ function draw() {
   const gameEnd = performance.now();
   
   const panelsEnd = performance.now();
+
+  particleManager.update(deltaTime / 1000);
+  particleManager.draw();
   
   fill(textCol);
 
@@ -928,6 +943,9 @@ function drawGamePanel() {
     if (currentAnimation === 'Message'){
       drawRulerMessage(gameState, cellSize, font_size);
     }
+    if (currentAnimation === 'Smite'){
+      drawSmite(gameState, cellSize, particleManager);
+    }
 
   }
   
@@ -1205,8 +1223,11 @@ function renderInfoPanelToBuffer(buffer, panel) {
       y += 50;
     }
   }
-
-  if (personalityEvolving) buffer.text('Rulers are thinking...', panel.width * 0.45, panel.height - 30);
+  // rotating dash for non-stuck visualization
+  let chars = ['|', '/', '-', '\\'];
+  let index = floor(frameCount / 10) % chars.length;
+  let dashChar = chars[index];
+  if (personalityEvolving) buffer.text(`${dashChar} Rulers are thinking...`, panel.width * 0.42, panel.height - 25);
   
 }
 
@@ -1251,6 +1272,18 @@ function drawControlsPanel() {
     text('Start Game', startButton.x + startButton.w/2, startButton.y + startButton.h/2);
     textAlign(LEFT);
   }
+
+  //restart game button
+  const restartButton = restartButtonLayout;
+  fill(60);
+  noStroke();
+  rect(restartButton.x, restartButton.y, restartButton.w, restartButton.h);
+  fill(textCol);
+  strokeWeight(2);
+  stroke(textColBleed);
+  textAlign(CENTER, CENTER);
+  text('Restart', restartButton.x + restartButton.w/2, restartButton.y + restartButton.h/2);
+  textAlign(LEFT);
   
   pop();
 }
@@ -1374,6 +1407,22 @@ function drawObserverButtons() {
 // =============================================================================
 function mousePressed() {
   // Convert screen coordinates to panel coordinates
+
+  let clickCol = color( 0, 255 - Math.random() * 100,0, 255);
+  
+  particleManager.spawnBurst({ x: mouseX, y: mouseY }, 30, clickCol, [new DragEffector(3)]);
+
+  let particleCount = 20;
+  let fireballcols = [];
+  for (let i = 0; i < particleCount; i++){
+    fireballcols.push(color(255, 0, Math.random() * 200, 255));
+  }
+
+
+ // particleManager.spawnBurst({ x: mouseX, y: mouseY }, particleCount, fireballcols,
+  //   [new FireballEffector({x: mouseX, y: mouseY})], 3 + Math.random() * 2, 10, 1, ADD);
+  
+
   const panelClick = getPanelClick(mouseX, mouseY);
   
   switch (panelClick.panel) {
@@ -1451,6 +1500,14 @@ function handleControlsClick(x, y) {
     togglePause();
     return;
   }
+  // Check restart button
+  const restartButton = restartButtonLayout;
+  if (x >= restartButton.x && x <= restartButton.x + restartButton.w && 
+      y >= restartButton.y && y <= restartButton.y + restartButton.h) {
+    startGame();
+    console.log('🔄 Game restarted');
+    return;
+  }
   
   for (const button of buttons) {
     if (x >= button.x && x <= button.x + button.w && 
@@ -1482,6 +1539,7 @@ function gameClickToTile(x, y) {
     
 
 function handleGameClick(x, y) {
+
   if (!selectedObserverAction) return;
   
   const tilePos = gameClickToTile(x, y);
@@ -1495,8 +1553,7 @@ function handleGameClick(x, y) {
 }
 
 function handleMessagesClick(x, y) {
-  // TODO: Handle message panel interactions
-  console.log('Messages panel clicked', x, y);
+  
 }
 
 // =============================================================================
@@ -1576,14 +1633,52 @@ function sendObserverMessage() {
 
 function startGame() {
   console.log('🎮 Starting new game...');
-  
-  // Default agent configuration with new personality system
+
+  // Get all available personality keys
+  const allPersonalities = ['zealot', 'skeptic', 'madman', 'aristocrat', 'peasant', 'scholar', 'barbarian']
+  // Shuffle personalities for random assignment
+  const shuffled = allPersonalities.sort(() => Math.random() - 0.5);
+  // Assign to factions A-D
   const agentConfig = [
-    { name: 'Faction A', personality: 'zealot' },
-    { name: 'Faction B', personality: 'skeptic' },
-    { name: 'Faction C', personality: 'peasant' },
-    { name: 'Faction D', personality: 'madman' }
+    { name: 'Faction A', personality: shuffled[0] },
+    { name: 'Faction B', personality: shuffled[1] },
+    { name: 'Faction C', personality: shuffled[2] },
+    { name: 'Faction D', personality: shuffled[3] }
   ];
+
+  clearAnims();
+  //reset ALL global states
+  gameState = null;
+  pendingGameState = null;
+
+  animationQueue = [];
+  isAnimating = false;
+  animationPaused = false;
+  selectedObserverAction = null; // For targeting observer powers
+  actionLog = [];
+  messageLog = [];
+  currentAnimation = null;
+  animationReservedTiles = new Set();
+  tileRealLocations = new Map();
+  hoveredTileKey = null;
+  hoveredTileInfo = null;
+  personalityEvolving = false;
+  particleManager = new ParticleManager();
+
+  // Tile caching for performance
+  tileCache = new Map();
+  gameStateSnapshot = null;
+  isAnimationSequenceActive = false;
+  cacheClearPending = false;
+  textBoxContent = '';
+  textBoxActive = false;
+
+// Panel caching for performance
+  messagesPanelCache = null;
+  messagesPanelCacheInvalid = true;
+  infoPanelCache = null;
+  infoPanelCacheInvalid = true;
+  titleCache = null;
   
   fetch('/api/game/start', {
     method: 'POST',
@@ -1646,11 +1741,37 @@ function keyPressed() {
   }
 }
 
+// Delayed tooltip update for hover
+let tooltipDelayTimeout = null;
+let tooltipDelayTileKey = null;
+
+function delayedTooltipCheck(tileKey) {
+  if (tooltipDelayTimeout) {
+    clearTimeout(tooltipDelayTimeout);
+    tooltipDelayTimeout = null;
+  }
+  tooltipDelayTileKey = tileKey;
+  tooltipDelayTimeout = setTimeout(() => {
+    // After 0.5s, compare the tile that was hovered at call time to the current hovered tile
+    if (tooltipDelayTileKey && hoveredTileKey && tooltipDelayTileKey === hoveredTileKey) {
+      messagesPanelCacheInvalid = true;
+    }
+    tooltipDelayTimeout = null;
+    tooltipDelayTileKey = null;
+  }, 300);
+}
+
 function bleedLerpColor(col, amount = 0.7) {
   return lerpColor(col,  color(0, 0, 0, 128), amount);
 }
 
 function mouseMoved() {
+//update mouse velocity
+  mouseVelocity.x = mouseX - (mouseMoved.lastX || mouseX);
+  mouseVelocity.y = mouseY - (mouseMoved.lastY || mouseY);
+  mouseMoved.lastX = mouseX;
+  mouseMoved.lastY = mouseY;
+
   // Find which tile (if any) the mouse is over
   let hovered = false;
   for (const [tileKey, pos] of tileRealLocations.entries()) {
@@ -1658,11 +1779,12 @@ function mouseMoved() {
     const h = pos.h;
     if (mouseX >= pos.x + LAYOUT.gamePanel.x && mouseX <= pos.x + LAYOUT.gamePanel.x + w &&
         mouseY >= pos.y + LAYOUT.gamePanel.y && mouseY <= pos.y + LAYOUT.gamePanel.y + h - 10) {
-      if (hoveredTileKey !== tileKey) messagesPanelCacheInvalid = true;
+      //if (hoveredTileKey !== tileKey) messagesPanelCacheInvalid = true;
       hoveredTileKey = tileKey;
       // Parse x/y from key
       const [x, y] = tileKey.split('-').map(Number);
       if (gameState && gameState.grid && gameState.grid[y] && gameState.grid[y][x]) {
+        if (hoveredTileInfo !== gameState.grid[y][x]) delayedTooltipCheck(tileKey);
         hoveredTileInfo = gameState.grid[y][x];
       }
       hovered = true;
@@ -1675,6 +1797,24 @@ function mouseMoved() {
     hoveredTileInfo = null;
   }
 }
+
+function mouseDragged() {
+//update mouse velocity
+  mouseVelocity.x = mouseX - (mouseDragged.lastX || mouseX);
+  mouseVelocity.y = mouseY - (mouseDragged.lastY || mouseY);
+  mouseDragged.lastX = mouseX;
+  mouseDragged.lastY = mouseY;
+
+  particleManager.moveFireball({ x: mouseX, y: mouseY });
+
+  let dragAngle = Math.atan2(mouseVelocity.y, mouseVelocity.x);
+  let dragSpeed = Math.min(30, Math.sqrt(mouseVelocity.x * mouseVelocity.x + mouseVelocity.y * mouseVelocity.y));
+
+  let col = color( 0, 150 + Math.random() * 105,0, 200 + Math.random() * 55);
+ // particleManager.spawnFountain({ x: mouseX, y: mouseY }, 5, col, 1.2,
+    //dragAngle, { min: dragSpeed * 2, max: dragSpeed * 6 }, [new DragEffector(2)]);
+}
+
 function getTileCount(faction) {
   let count = 0;
   if (gameState && gameState.grid) {
@@ -1704,6 +1844,7 @@ window.preload = preload;
 window.mousePressed = mousePressed;
 window.mouseMoved = mouseMoved;
 window.keyPressed = keyPressed;
+window.mouseDragged = mouseDragged;
 window.tileRealLocations = tileRealLocations;
 window.agents_color_map = agents_color_map;
 window.bleedLerpColor = bleedLerpColor;

@@ -20,6 +20,13 @@ function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
 }
 
+export function clearAnims() {
+  animationStartTime = 0;
+  animationDuration = 0;
+  currentAction = null;
+  imageTmpBuf = null;
+}
+
 export function animateUniversal(actionData, duration, callback) {
   animationStartTime = Date.now();
   currentAction = {
@@ -89,6 +96,13 @@ function reinforceResolutionEffects(gameState, actionResult) {
   if (actionResult.success) {
     const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
     tile.troop_power = actionResult.changes.newValue;
+  }
+}
+
+function smiteResolutionEffects(gameState, actionResult) {
+  if (actionResult.success) {
+    const tile = gameState.grid[actionResult.changes.tile.y][actionResult.changes.tile.x];
+    tile.troop_power = 0;
   }
 }
 
@@ -656,5 +670,34 @@ export function drawRulerMessage(gameState, cellSize, font_size) {
   }else{
     //shouldnt happen
     console.log("Unknown message type for ruler message animation.");
+  }
+}
+
+export function drawSmite(gameState, cellSize, particleManager) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);
+  const params = currentAction.action.parameters;
+  const X = params.x;
+  const Y = params.y;
+  let tileKey = `${X}-${Y}`;
+  let tileImage = window.tileCache.get(tileKey);//doesnt redraw tile
+  if (progress >= 1.0) {
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+    smiteResolutionEffects(gameState, currentAction.actionResult);
+    currentAction = null;
+    if (callback) {
+      callback();
+    }
+    return;
+  }
+
+  let posX = window.tileRealLocations.get(tileKey).x + window.LAYOUT.gamePanel.x + cellSize * 0.5;
+  let posY = window.tileRealLocations.get(tileKey).y + window.LAYOUT.gamePanel.y + cellSize * 0.5;
+  console.log(posX, posY);
+  for (let i = 0; i < progress * 5; i++) {
+    particleManager.spawnAutomataLine({x: posX, y: posY}, color(15, 20, 255, 255), 0.8);
   }
 }

@@ -58,10 +58,10 @@ export class GameEngine {
     const gridSize = 10;
     // Predefined corners for up to 4
     const defaultPositions = [
-      [1, 1],
-      [8, 8],
-      [1, 8],
-      [8, 1]
+      [2, 2],
+      [2, 7],
+      [7, 7],
+      [7, 2]
     ];
     let used = new Set();
     for (let i = 0; i < n; i++) {
@@ -800,7 +800,6 @@ export class GameEngine {
           currentPersonalities[factionName] = agent.personalityData;
         }
       }
-
       
       // Skip evolution if no personalities to evolve
       if (Object.keys(currentPersonalities).length === 0) {

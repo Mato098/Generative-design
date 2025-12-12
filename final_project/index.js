@@ -22,8 +22,12 @@ app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
 // Initialize game engine
-const gameEngine = new GameEngine();
-const observer = new ObserverInterface(gameEngine);
+let gameEngine;
+let observer;
+
+// Initialize global game engine and observer at startup
+global.gameEngine = new GameEngine();
+global.observer = new ObserverInterface(global.gameEngine);
 
 // WebSocket server for real-time communication
 const server = app.listen(PORT, () => {
@@ -32,39 +36,42 @@ const server = app.listen(PORT, () => {
 
 const wss = new WebSocketServer({ server });
 
+function broadcastToAll(message) {
+  wss.clients.forEach(client => {
+    if (client.readyState === client.OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
+
+// Set broadcast function on the initial game engine
+global.gameEngine.setBroadcastFunction(broadcastToAll);
+
 wss.on('connection', (ws) => {
   console.log('Client connected');
   
   // Send current game state to new client
-  ws.send(JSON.stringify({
-    type: 'gameState',
-    data: gameEngine.getState()
-  }));
+  if (global.gameEngine) {
+    ws.send(JSON.stringify({
+      type: 'gameState',
+      data: global.gameEngine.getState()
+    }));
+  }
   
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
-
-      if (data.type === 'clientReloading') {
-        console.log('🔄 Client requested server restart');
-        exec('pm2 restart game-server', (err) => {
-        if (err) {
-          console.error('PM2 restart failed:', err);
-        }
-      });
-      return;
-    }
       
       if (data.type === 'observerAction') {
         console.log(`⚡ Observer used ${data.action.type}:`, JSON.stringify(data.action.parameters));
-        const result = await observer.executeAction(data.action);
+        const result = await global.observer.executeAction(data.action);
         // Result is broadcast by executeObserverAction itself
       }
       
       if (data.type === 'animationComplete') {
         // Client finished playing animations
         console.log('🎬 Client animations complete, continuing game');
-        gameEngine.continueAfterAnimation();
+        global.gameEngine.continueAfterAnimation();
       }
       
     } catch (error) {
@@ -81,25 +88,28 @@ wss.on('connection', (ws) => {
   });
 });
 
-function broadcastToAll(message) {
-  wss.clients.forEach(client => {
-    if (client.readyState === client.OPEN) {
-      client.send(JSON.stringify(message));
-    }
-  });
-}
-
 // REST API endpoints
 app.get('/api/game/state', (req, res) => {
-  res.json(gameEngine.getState());
+  res.json(global.gameEngine.getState());
 });
 
 app.post('/api/game/start', async (req, res) => {
   try {
-    await gameEngine.startGame(req.body.agents || []);
+     // Hard reset: throw away old engine + observer
+    global.gameEngine = new GameEngine();
+    global.observer = new ObserverInterface(global.gameEngine);
+
+    console.log('♻️♻️♻️♻️♻️♻️♻️ Game engine reset for new game');
+
+    // Reattach broadcast function
+    global.gameEngine.setBroadcastFunction(broadcastToAll);
+
+    // Start fresh game
+    await global.gameEngine.startGame(req.body.agents || []);
+    
     broadcastToAll({
       type: 'gameStarted',
-      data: gameEngine.getState()
+      data: global.gameEngine.getState()
     });
     res.json({ success: true });
   } catch (error) {
@@ -108,8 +118,5 @@ app.post('/api/game/start', async (req, res) => {
 });
 
 app.get('/api/game/actions', (req, res) => {
-  res.json(gameEngine.getActionHistory());
+  res.json(global.gameEngine.getActionHistory());
 });
-
-// Make broadcast function available to game engine
-gameEngine.setBroadcastFunction(broadcastToAll);
