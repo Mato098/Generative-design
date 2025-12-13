@@ -105,6 +105,10 @@ export class GameEngine {
       console.log(`⏸️ Skipping processNextTurn: isProcessingTurn=${this.isProcessingTurn}, isPaused=${this.isPaused}`);
       return;
     }
+    if (this.gameState.gameStatus === 'finished') {
+      console.log('🛑 Game has ended. No further turns will be processed.');
+      return;
+    }
     this.isProcessingTurn = true;
     
     try {
@@ -282,11 +286,23 @@ export class GameEngine {
       console.log(`⚠️ Ignoring continueAfterAnimation - not waiting for animation`);
       return;
     }
-    
+
+    if (this.gameState.gameStatus === 'finished') {
+      console.log('🛑 Game has ended. No further turns will be processed (continueAfterAnimation).');
+      this.isWaitingForAnimation = false;
+      this.isProcessingTurn = false;
+      return;
+    }
+
     this.isWaitingForAnimation = false;
-    
+
     // Continue game loop after brief delay (personality evolution may still be running)
     setTimeout(() => {
+      if (this.gameState.gameStatus === 'finished') {
+        console.log('🛑 Game has ended. No further turns will be processed (continueAfterAnimation, delayed).');
+        this.isProcessingTurn = false;
+        return;
+      }
       // Check if we need to restart a turn that was interrupted by observer action
       if (this.needsRestartAfterObserver) {
         console.log(`🔄 Restarting interrupted turn after observer intervention`);

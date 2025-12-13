@@ -4,6 +4,8 @@ let currentAction = null;
 let animationDuration = 0;
 let imageTmpBuf = null;
 
+import { GravityEffector } from './ParticleBase.js';
+
 function seededRandomGenerator(seed) {
   return function() {
     seed = (seed * 9301 + 49297) % 233280;
@@ -18,6 +20,10 @@ function sanitizeAscii(str) {
 function easeInOutCubic(t) {
   t = constrain(t, 0, 1);
   return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+}
+
+function easeInCubic(t) {
+  return t * t * t;
 }
 
 export function clearAnims() {
@@ -261,18 +267,6 @@ export function drawMovingTiles(gameState, cellSize) {
   }
 }
 
-export function getAnimationInfo() {
-  if (!currentAction) return null;
-  const params = currentAction.action.parameters;
-  return {
-    type: 'Move',
-    fromX: params.fromX,
-    fromY: params.fromY,
-    toX: params.targetX,
-    toY: params.targetY
-  };
-}
-
 export function drawTilesBless(gameState, cellSize) {
   if (!currentAction) return;
   const elapsed = Date.now() - animationStartTime;
@@ -308,6 +302,7 @@ export function drawTilesBless(gameState, cellSize) {
     blessGradient.colors(0, "#ffeb3791",  1, "#fff0680a");
     fillGradient(blessGradient);
     let tileLocation = window.tileRealLocations.get(tileKey);
+    noStroke();
     beginShape();
     vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 0.05, lightDropDown), (tileLocation.y + cellSize * 0.15) * lightDropDown);
     vertex(lerp(tileLocation.x + cellSize * 1, tileLocation.x + cellSize * 0.05, lightDropDown), (tileLocation.y + cellSize * 0.85) * lightDropDown);
@@ -440,6 +435,7 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   const X = params.x;
   const Y = params.y;
   let tileKey = `${X}-${Y}`;
+  console.log('Constructing tile:', tileKey);
   let tileImage = window.tileCache.get(tileKey);
   if (progress >= 1.0) {
     const callback = currentAction.callback;
@@ -458,6 +454,10 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   let col = window.agents_color_map[gameState.grid[Y][X].owner.slice(-1)] || '#888888ff';
   let bleedCol = window.bleedLerpColor(color(col), 0.5);
 
+  console.log(gameState.grid[Y][X]);
+  console.log(tileKey);
+  image(window.tileCache.get(tileKey), X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
+
   const {x, y, w, h} = window.tileRealLocations.get(tileKey);
 
   textSize(font_size);
@@ -472,6 +472,7 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
 
   fill(col);
   stroke(bleedCol);
+  console.log(col, bleedCol);
   strokeWeight(2);
   text(lettersAlreadyDrawn, screentextStartX, screenStartY);
   
@@ -696,8 +697,101 @@ export function drawSmite(gameState, cellSize, particleManager) {
 
   let posX = window.tileRealLocations.get(tileKey).x + window.LAYOUT.gamePanel.x + cellSize * 0.5;
   let posY = window.tileRealLocations.get(tileKey).y + window.LAYOUT.gamePanel.y + cellSize * 0.5;
-  console.log(posX, posY);
+
   for (let i = 0; i < progress * 5; i++) {
     particleManager.spawnAutomataLine({x: posX, y: posY}, color(15, 20, 255, 255), 0.8);
   }
+}
+
+export function drawMeteor(gameState, cellSize, particleManager) {
+  if (!currentAction) return;
+  const elapsed = Date.now() - animationStartTime;
+  const progress = Math.min(elapsed / animationDuration, 1.0);
+  const params = currentAction.action.parameters;
+  const X = params.x;
+  const Y = params.y;
+  let tileKey = `${X}-${Y}`;
+  let tileImage = window.tileCache.get(tileKey);
+  if (progress >= 1.0) {
+    const callback = currentAction.callback;
+    animationStartTime = 0;
+    animationDuration = 0;
+    currentAction = null;
+
+    let particleCount = 500;
+    let particleColsMap = [];
+    let effector = new GravityEffector({x: 0, y: 10});
+    for (let i = 0; i < particleCount; i++) {
+      let r = 200 + (Math.random() - 0.5) * 55;
+      let g = 50 + (Math.random() - 0.5) * 50;
+      let b = 0;
+      particleColsMap.push(color(r, g, b));
+    }
+    particleManager.spawnBurst(
+      {x: window.tileRealLocations.get(tileKey).x + window.LAYOUT.gamePanel.x + cellSize * 0.5,
+       y: window.tileRealLocations.get(tileKey).y + window.LAYOUT.gamePanel.y + cellSize * 0.5},
+      particleCount,
+      particleColsMap,
+      [effector],
+      3,
+      7,
+      20,
+      ADD
+    );
+    let ringCount = 3;
+    for (let i = 0; i < ringCount; i++) {
+      particleManager.spawnRing(
+        {x: window.tileRealLocations.get(tileKey).x + window.LAYOUT.gamePanel.x + cellSize * 0.5,
+         y: window.tileRealLocations.get(tileKey).y + window.LAYOUT.gamePanel.y + cellSize * 0.5},
+        20 * (i + 1),
+        50 + i*30,
+        particleColsMap,
+        [effector],
+        2,
+        4,
+        30,
+        ADD
+      );
+    }
+    
+    if (callback) {
+      callback();
+    }
+    return;
+  }
+  let originPosX = window.tileRealLocations.get(tileKey).x + window.LAYOUT.gamePanel.x + cellSize * 5;
+  let originPosY = -cellSize * 2;
+
+  let targetPosX = window.tileRealLocations.get(tileKey).x + window.LAYOUT.gamePanel.x + cellSize * 0.5;
+  let targetPosY = window.tileRealLocations.get(tileKey).y + window.LAYOUT.gamePanel.y + cellSize * 0.5;
+  
+  let easedProgress = easeInCubic(progress);
+  let currentX = lerp(originPosX, targetPosX, easedProgress);
+  let currentY = lerp(originPosY, targetPosY, easedProgress);
+ 
+  let pathAngle = atan2(targetPosY - originPosY, targetPosX - originPosX);
+  let col = color(255, 150 + (Math.random()-0.5) * 50, 10);
+  particleManager.spawnFountain(
+    {x: currentX, y: currentY},
+    ceil(easeInCubic(progress) * 10),
+    col,
+    PI / 8,
+    pathAngle,
+    { min: 60, max: 90},
+    2,
+    4,
+    [new GravityEffector({x: 0, y: 50})],
+    ADD
+  );
+  
+  rectMode(CENTER);
+  fill(235, 60, 0);
+  noStroke();
+  push();
+  translate(currentX - window.LAYOUT.gamePanel.x, currentY - window.LAYOUT.gamePanel.y);
+  rotate(-frameCount * 0.1);
+  rect(0, 0, cellSize * 0.5, cellSize * 0.5); 
+  rotate(PI / 4);
+  rect(0, 0, cellSize * 0.5, cellSize * 0.5);
+  pop();
 }

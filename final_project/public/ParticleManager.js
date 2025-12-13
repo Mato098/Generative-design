@@ -87,8 +87,37 @@ export class ParticleManager {
       this.spawn(particle);
     }
 }
-  spawnFountain(position, amount, color, angleRange, angleBase, speedRange, effectors=[]) {
-    console.log('Spawning fountain at', position, 'amount:', amount, 'color:', color, 'angleRange:', angleRange, 'angleBase:', angleBase, 'speedRange:', speedRange, 'effectors:', effectors);
+  spawnRing(position, radius, count, color, effectors=[], size=1.2, lifetime=1.0, speedBase=20, blendMode=BLEND) {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      // Calculate the spawn position on the ring
+      const px = position.x + Math.random() * 10 + Math.cos(angle) * radius;// * ((Math.random() - 0.5) * 0.2 + 1);
+      const py = position.y + Math.random() * 10 + Math.sin(angle) * radius;// * ((Math.random() - 0.5) * 0.2 + 1);
+      // Velocity is directly away from the origin (center)
+      const speed = speedBase;
+      const velocity = {
+        x: Math.cos(angle) * speed,
+        y: Math.sin(angle) * speed
+      };
+      let particleColor = color;
+      if (Array.isArray(color)) {
+        particleColor = color[i % color.length];
+      }
+      const particle = new Particle({
+        position: { x: px, y: py },
+        velocity: velocity,
+        color: particleColor,
+        size: size,
+        lifetime: lifetime * (0.5 + Math.random() * 0.5),
+        colBlendMode: blendMode
+      });
+      for (const effector of effectors) {
+        particle.effectors.push(effector);
+      }
+      this.spawn(particle);
+    }
+  }
+  spawnFountain(position, amount, color, angleRange, angleBase, speedRange, lifetime=1, size = 1, effectors=[], blendMode=BLEND) {
     for (let i = 0; i < amount; i++) {
         const angle = angleBase + (Math.random() * angleRange - angleRange / 2);
         const speed = Math.random() * (speedRange.max - speedRange.min) + speedRange.min;
@@ -100,8 +129,9 @@ export class ParticleManager {
             position: { ...position },
             velocity: velocity,
             color: color,
-            size: 1,
-            lifetime: 0.5
+            size: size,
+            lifetime: lifetime * (0.5 + Math.random() * 0.5),
+            colBlendMode: blendMode
         });
         for (const effector of effectors) {
           particle.effectors.push(effector);

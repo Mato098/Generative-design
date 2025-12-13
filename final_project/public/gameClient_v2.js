@@ -6,6 +6,7 @@
 // =============================================================================
 let socket = null;
 let gameState = null;
+let gameOver = false;
 let particleManager = null;
 let animationQueue = [];
 let isAnimating = false;
@@ -27,7 +28,7 @@ let hoveredTileInfo = null;
 let tooltipTileHoverStart = 0;
 
 let personalityEvolving = false;
-let personalityEvolvingInfoPanelLastRefresh = 0;
+let personalityEvolvingLastRefresh = 0;
 
 // Tile caching for performance
 let tileCache = new Map(); // Cache rendered tiles
@@ -51,7 +52,7 @@ let textColBleed = '#808080ea';
 
 let agents_color_map = {'A':'#0051ffff', 'B': '#ff0004ff', 'C': '#00ff95ff', 'D': '#f50cfdff'};
 
-import { drawSmite, clearAnims, drawRulerMessage, drawTilesSanctuary, drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, getAnimationInfo, drawTilesBless, animateUniversal, drawTilesReinforce} from './tileAnimations.js';
+import { drawMeteor, drawSmite, clearAnims, drawRulerMessage, drawTilesSanctuary, drawTilesConvert, drawTilesConstruct, drawMovingTiles as drawMovingTiles_Move, drawTilesBless, animateUniversal, drawTilesReinforce} from './tileAnimations.js';
 import { ParticleManager } from './ParticleManager.js';
 import { DragEffector, FireballEffector } from './ParticleBase.js';
 
@@ -182,7 +183,7 @@ function handleServerMessage(message) {
     case 'gameState':
       console.log('🎮 Game state updated');
       gameState = message.data;
-      //tileCache.clear(); // Clear cache for new state
+      tileCache.clear(); // Clear cache for new state
       //console.log('🧹 Cleared tile cache for new game state');
       break;
       
@@ -220,8 +221,6 @@ function handleServerMessage(message) {
       // Store new game state and snapshot current state before animations
       if (message.data.newGameState) {
         if (!isAnimationSequenceActive) {
-          // Skip expensive deep cloning - we don't actually need the snapshot
-          // gameStateSnapshot = JSON.parse(JSON.stringify(gameState));
           isAnimationSequenceActive = true;
           console.log('📸 Started animation sequence (skipped expensive snapshot)');
         }
@@ -244,8 +243,8 @@ function handleServerMessage(message) {
       
     case 'gameEnded':
       personalityEvolving = false;
-      actionLog.push(`Game ended! Winner: ${message.data.winner} (${message.data.type} victory)`);
-      handleGameEnd(message.data);
+      actionLog.push(`Game ended! Winner: ${message.data.winner}`);
+      gameOver = true;
       break;
       
     case 'error':
@@ -401,6 +400,12 @@ function executeAnimation(action, callback) {
           callback();
         });
       break;
+      case 'Meteor':
+        currentAnimation = 'Meteor';
+        animateUniversal(action, duration, () => {
+          callback();
+        });
+      break;
     default:
       console.log(`ACTION ANIM NOT IMPLEMENTED: ${actionType}, defaulting to wait`);
       currentAnimation = 'default';
@@ -416,8 +421,8 @@ function getAnimationDuration(type, messageText='') {
     'Reinforce': 2000,
     'Construct': 2500,
     'Sanctuary': 1200,
-    'Meteor': 1500,
-    'Smite': 1000,
+    'Meteor': 2000,
+    'Smite': 1500,
     'Bless': 2000,
     'default': 1000
   };
@@ -561,6 +566,7 @@ function draw_border_ascii(x, y, w, h, style = '=I****', color = null, do_bg = t
 function draw() {
   const drawStart = performance.now();
   background('#000000ff');
+
   
   if (!gameState) {
     drawLoadingScreen();
@@ -575,8 +581,8 @@ function draw() {
   const msgEnd = performance.now();
   
   const infoStart = performance.now();
-  if (personalityEvolving && millis() - personalityEvolvingInfoPanelLastRefresh > 500) infoPanelCacheInvalid = true;
   drawInfoPanel();
+  if (personalityEvolving) drawPersonalityEvolvingEffect();
   const infoEnd = performance.now();
   
   const controlsStart = performance.now();
@@ -590,21 +596,18 @@ function draw() {
   const gameStart = performance.now();
   drawGamePanel();
   const gameEnd = performance.now();
+
+  drawPowerTooltip();
   
   const panelsEnd = performance.now();
 
   particleManager.update(deltaTime / 1000);
   particleManager.draw();
+
+  
+  image(tileCache.get(`${2}-${2}`), 0, 0); // Test tile rendering
   
   fill(textCol);
-
-  if (isAnimating) {
-    const animInfo = getAnimationInfo();
-    const animText = animInfo ? 
-      `Moving (${animInfo.fromX},${animInfo.fromY}) -> (${animInfo.toX},${animInfo.toY})` :
-      'Unknown animation';
-    text('Animating: ' + animText, LAYOUT.totalWidth * 0.1, LAYOUT.totalHeight * 0.95);
-  }
   
   const drawEnd = performance.now();
   const totalDrawTime = (drawEnd - drawStart).toFixed(2);
@@ -619,6 +622,19 @@ function draw() {
   text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
   text(`Draw: ${totalDrawTime}ms | Panels: ${panelsTime}ms`, 10, 530);
   text(`Msg:${msgTime} Info:${infoTime} Ctrl:${controlsTime} Title:${titleTime} Game:${gameTime}`, 10, 550);
+
+}
+
+function drawPersonalityEvolvingEffect(){
+  personalityEvolvingLastRefresh = millis();
+
+  let chars = ['|', '/', '-', '\\'];
+  let index = floor(frameCount / 10) % chars.length;
+  let dashChar = chars[index];
+  fill(textCol);
+  strokeWeight(2);
+  stroke(textColBleed);
+  text(`${dashChar} Rulers are thinking...`, LAYOUT.rightPanel.infoSection.x + LAYOUT.rightPanel.infoSection.width * 0.42, LAYOUT.rightPanel.infoSection.y + LAYOUT.rightPanel.infoSection.height * 0.9);
 
 }
 
@@ -946,6 +962,12 @@ function drawGamePanel() {
     if (currentAnimation === 'Smite'){
       drawSmite(gameState, cellSize, particleManager);
     }
+    if (currentAnimation === 'Meteor'){
+      drawMeteor(gameState, cellSize, particleManager);
+    }
+    if (gameOver){
+      drawGameOverOverlay(gameState, cellSize, font_size);
+    }
 
   }
   
@@ -976,6 +998,25 @@ function drawAllSanctuaryOverlays(gameState, cellSize) {
       }
     }
   }
+}
+
+function drawGameOverOverlay(gameState, cellSize, font_size) {
+  push();
+  textFont(text_font);
+  textSize(font_size * 2);
+  fill('#ff0000ff');
+  strokeWeight(4);
+  stroke(bleedLerpColor(color('#ff0000ff')));
+  textAlign(CENTER, CENTER);
+  let overlayW = 600;
+  let overlayH = 200;
+  let overlayX = LAYOUT.gamePanel.width / 2 - overlayW / 2;
+  let overlayY = LAYOUT.gamePanel.height / 2 - overlayH / 2;
+  
+  draw_border_ascii(overlayX, overlayY, overlayW, overlayH, '=I****', framesCol, true, font_size * 1.5, 0.5);
+  text('Scenario ended with 1 faction remaining', overlayX + overlayW / 2, overlayY + overlayH / 3 - 10);
+  text('Press Restart to start over', overlayX + overlayW / 2, overlayY + overlayH / 3 + 40);
+  pop();
 }
 
 function drawGameGrid() {
@@ -1223,12 +1264,6 @@ function renderInfoPanelToBuffer(buffer, panel) {
       y += 50;
     }
   }
-  // rotating dash for non-stuck visualization
-  let chars = ['|', '/', '-', '\\'];
-  let index = floor(frameCount / 10) % chars.length;
-  let dashChar = chars[index];
-  if (personalityEvolving) buffer.text(`${dashChar} Rulers are thinking...`, panel.width * 0.42, panel.height - 25);
-  
 }
 
 function drawControlsPanel() {
@@ -1243,6 +1278,7 @@ function drawControlsPanel() {
   fill(textCol);
   strokeWeight(2);
   stroke(textColBleed);
+  textAlign(LEFT, CENTER);
   text('Your Powers', window.LAYOUT.rightPanel.width * 0.1, window.LAYOUT.rightPanel.height * 0.05);
   
   // Pause/Resume button
@@ -1658,15 +1694,16 @@ function startGame() {
   actionLog = [];
   messageLog = [];
   currentAnimation = null;
-  animationReservedTiles = new Set();
-  tileRealLocations = new Map();
+  animationReservedTiles.clear();
+  tileRealLocations.clear();
   hoveredTileKey = null;
   hoveredTileInfo = null;
   personalityEvolving = false;
   particleManager = new ParticleManager();
+  gameOver = false;
 
   // Tile caching for performance
-  tileCache = new Map();
+  tileCache.clear();
   gameStateSnapshot = null;
   isAnimationSequenceActive = false;
   cacheClearPending = false;
@@ -1719,11 +1756,6 @@ function drawLoadingScreen() {
   textAlign(LEFT);
 }
 
-function handleGameEnd(data) {
-  console.log('Game ended:', data);
-  // TODO: Show victory screen
-}
-
 function keyPressed() {
   // Handle text input when text box is active
   if (textBoxActive) {
@@ -1765,6 +1797,40 @@ function bleedLerpColor(col, amount = 0.7) {
   return lerpColor(col,  color(0, 0, 0, 128), amount);
 }
 
+function drawPowerTooltip(){
+  for (const button of buttons) {
+    if (mouseX >= button.x + LAYOUT.rightPanel.controlsSection.x &&
+        mouseX <= button.x + LAYOUT.rightPanel.controlsSection.x + button.w &&
+        mouseY >= button.y + LAYOUT.rightPanel.controlsSection.y &&
+        mouseY <= button.y + LAYOUT.rightPanel.controlsSection.y + button.h) {          
+          let boxW = 285;
+          let boxH = 104;
+          let boxX = mouseX  - boxW - 5;
+          let boxY = mouseY - boxH - 5;
+          draw_border_ascii(boxX, boxY, boxW, boxH, '=I****', framesCol, true, font_size, 0.5);
+          fill(textCol);
+          strokeWeight(2);
+          stroke(textColBleed);
+          textAlign(LEFT, TOP);
+          let description = '';
+          switch (button.name) {
+            case 'Smite':
+              description = 'Destroy all troops on a tile.';
+              break;
+            case 'Bless':
+              description = 'Construct a Shrine on a tile. Owner also gets Faith.';
+              break;
+            case 'Meteor':
+              description = 'Destroy all troops and buildings in a radius.';
+              break;
+          }
+          text(description, boxX + 20, boxY + 12, boxW - 40, 60);
+          text('Rulers will think about this action.', boxX + 20, boxY + 52, boxW - 40, 40);
+          break;
+        }
+      }
+}
+
 function mouseMoved() {
 //update mouse velocity
   mouseVelocity.x = mouseX - (mouseMoved.lastX || mouseX);
@@ -1772,7 +1838,7 @@ function mouseMoved() {
   mouseMoved.lastX = mouseX;
   mouseMoved.lastY = mouseY;
 
-  // Find which tile (if any) the mouse is over
+   // Find which tile (if any) the mouse is over
   let hovered = false;
   for (const [tileKey, pos] of tileRealLocations.entries()) {
     const w = pos.w;

@@ -98,6 +98,11 @@ EVOLUTION GUIDELINES:
   • new constraints or defects (e.g., hesitations, ritual phrases, clipped logic, manic spirals)
 - Update core_beliefs if worldview changes.
 - Adjust decision_style or authority_relationship if their stance toward divine judgment shifts.
+- Nonverbal markers (interjections, pauses, tics) may:
+  • increase or decrease in frequency
+  • shift meaning (confidence → doubt, reverence → fear)
+  • become ritualized, obsessive, or suppressed
+- Any evolution of nonverbal markers must remain persona-consistent
 - Maintain the same JSON structure and original faction tags and names.
 - Each faction reacts according to both:
   • its intrinsic nature
