@@ -110,50 +110,52 @@ export class GameEngine {
       return;
     }
     this.isProcessingTurn = true;
-    
+
     try {
       const currentPlayerName = this.gameState.getCurrentPlayerName();
       console.log(`🎯 Processing turn for: ${currentPlayerName} (Turn ${this.gameState.turnNumber}, Player Index ${this.gameState.currentPlayerIndex})`);
       console.log(`📊 Player order:`, this.gameState.playerOrder);
-      
+
       // Apply passive income at start of faction turn
       if (this.gameState.currentPlayerIndex === 0) {
         this.gameState.applyPassiveIncome();
       }
-      
+
       const currentFaction = this.gameState.getCurrentPlayer();
-      
+
       // Reset turn-specific tracking
       if (!currentFaction.turnData) currentFaction.turnData = {};
       currentFaction.turnData.troopsRecruitedThisTurn = 0;
-      
+
       currentFaction.startTurn();
-      
+
       // Get AI agent and process turn
       const agent = this.agents.get(currentPlayerName);
       if (!agent) {
         throw new Error(`No agent found for faction: ${currentPlayerName}`);
       }
-      
+
       // Create abort controller for this AI request
       this.currentAIAbortController = new AbortController();
-      
+
       // Get actions from AI (can be interrupted)
       const executedActions = await this.processFactionTurn(currentPlayerName, this.currentAIAbortController.signal);
-      
+
       // Clear abort controller
       this.currentAIAbortController = null;
-      
-      // If turn was aborted, don't continue
-      if (!executedActions) {
+
+      // If turn was aborted, don't continue or advance player
+      if (!executedActions || executedActions.length === 0) {
         this.isProcessingTurn = false;
+        console.log('Turn was aborted, will retry current turn');
         return;
       }
-      
+
       // End current player's turn
       currentFaction.endTurn();
-      
-      // Move to next player BEFORE animation check
+
+      // Only advance to next player if turn was not aborted
+      console.log('advancing to next player turn');
       this.gameState.nextPlayer();
 
       // Broadcast executed actions for visualization
@@ -166,12 +168,12 @@ export class GameEngine {
           newGameState: this.gameState.toJSON()
         }
       });
-      
+
       // If there are no actual actions to animate, continue immediately
       if (executedActions.length === 0) {
         console.log('⏭️ No actions to animate, continuing immediately');
         this.isWaitingForAnimation = false;
-        
+
         // Check victory conditions
         const victory = this.gameState.checkVictoryConditions();
         if (victory) {
@@ -182,13 +184,15 @@ export class GameEngine {
           });
           return;
         }
-        
+
         setTimeout(() => {
           this.isProcessingTurn = false;
           this.processNextTurn();
         }, 500);
         return;
-      }      // Check victory conditions
+      }
+
+      // Check victory conditions
       const victory = this.gameState.checkVictoryConditions();
       if (victory) {
         this.gameState.gameStatus = 'finished';
@@ -198,10 +202,10 @@ export class GameEngine {
         });
         return;
       }
-      
+
       // Wait for animations to complete before next turn
       // Client will call continueAfterAnimation() when done
-      
+
     } catch (error) {
       console.error('Error processing turn:', error);
       this.isProcessingTurn = false;
@@ -220,7 +224,9 @@ export class GameEngine {
     // Wait for any pending personality evolution to complete
     if (this.pendingPersonalityEvolution) {
       console.log(`⏳ Waiting for personality evolution to complete before ${factionName}'s turn...`);
+      console.log(`🐛 About to await pendingPersonalityEvolution: ${!!this.pendingPersonalityEvolution}`);
       await this.pendingPersonalityEvolution;
+      console.log(`🐛 Finished awaiting pendingPersonalityEvolution`);
       this.pendingPersonalityEvolution = null;
       console.log(`✅ Personality evolution complete, ${factionName} proceeding with updated traits`);
     }
@@ -280,6 +286,7 @@ export class GameEngine {
   // Called when client finishes animating actions
   async continueAfterAnimation() {
     console.log(`🎬 continueAfterAnimation called: isWaitingForAnimation=${this.isWaitingForAnimation}, isProcessingTurn=${this.isProcessingTurn}`);
+    console.log(`🐛 continueAfterAnimation state: needsRestartAfterObserver=${this.needsRestartAfterObserver}, pendingPersonalityEvolution=${!!this.pendingPersonalityEvolution}`);
     
     // Only proceed if we were actually waiting for animation
     if (!this.isWaitingForAnimation) {
@@ -298,6 +305,7 @@ export class GameEngine {
 
     // Continue game loop after brief delay (personality evolution may still be running)
     setTimeout(() => {
+      console.log(`🐛 setTimeout in continueAfterAnimation: gameStatus=${this.gameState.gameStatus}, needsRestart=${this.needsRestartAfterObserver}, pendingEvolution=${!!this.pendingPersonalityEvolution}`);
       if (this.gameState.gameStatus === 'finished') {
         console.log('🛑 Game has ended. No further turns will be processed (continueAfterAnimation, delayed).');
         this.isProcessingTurn = false;
@@ -566,8 +574,11 @@ export class GameEngine {
 
     const conversionChance = clamp(base - defensePenalty + fBonus, 0.05, 0.95);
     const success = Math.random() < conversionChance;
-    
-    if (success && tile.owner !== playerName && tile.effects?.sanctuary && tile.effects.sanctuary < this.gameState.turnNumber) {
+
+    console.log(`   ✝️ CONVERT at (${action.parameters.x},${action.parameters.y}): defenders=${defenders}, chance=${(conversionChance*100).toFixed(1)}% → ${success ? 'SUCCESS' : 'FAILURE'}`);
+    console.log('defensePenalty:', defensePenalty.toFixed(3), 'fBonus:', fBonus.toFixed(3));
+    console.log(success, tile.owner, playerName, tile.effects?.sanctuary, this.gameState.turnNumber);
+    if (success && tile.owner !== playerName && (tile.effects?.sanctuary === undefined || tile.effects.sanctuary < this.gameState.turnNumber)) {
       //troops on that tile must flee to adjacent tiles or be lost
       let adjacentTiles = this.gameState.getAdjacentTiles(tile.x, tile.y);
       adjacentTiles = adjacentTiles.filter(t => t.owner === tile.owner);
@@ -578,7 +589,8 @@ export class GameEngine {
       }
       tile.troop_power = 0;
       tile.owner = playerName;
-     
+      console.log(`   🏃 Troops fled: ${fleeingTroops} to ${adjacentTiles.length} adjacent tiles (${per_tile_flee_amount.toFixed(1)} each)`);
+     console.log(tile);
       return {
         type: 'conversion_success',
         tile: { x: tile.x, y: tile.y },
@@ -663,6 +675,7 @@ export class GameEngine {
   // Observer methods
   async executeObserverAction(action) {
     console.log(`⚡ Divine intervention: ${action.type} at (${action.parameters.x || 'N/A'},${action.parameters.y || 'N/A'})`);
+    console.log(`🐛 State before divine action: isProcessingTurn=${this.isProcessingTurn}, isWaitingForAnimation=${this.isWaitingForAnimation}, needsRestartAfterObserver=${this.needsRestartAfterObserver}, pendingPersonalityEvolution=${!!this.pendingPersonalityEvolution}`);
     
     // Interrupt AI if it's thinking
     if (this.currentAIAbortController) {
@@ -691,6 +704,8 @@ export class GameEngine {
       // Don't restart immediately - let the aborted AI request complete and animations finish
     }
     
+    console.log(`🐛 State after divine action: isProcessingTurn=${this.isProcessingTurn}, isWaitingForAnimation=${this.isWaitingForAnimation}, needsRestartAfterObserver=${this.needsRestartAfterObserver}, pendingPersonalityEvolution=${!!this.pendingPersonalityEvolution}`);
+    
     return result;
   }
 
@@ -709,10 +724,25 @@ export class GameEngine {
     if (!skipTypes.includes(action.type)) {
       this.gameState.addObserverAction(action);
       // Only trigger personality evolution for relevant actions
-      this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
-        console.error('❌ Error evolving personalities:', err);
-        this.pendingPersonalityEvolution = null;
-      });
+      console.log(`🧠 Starting personality evolution for ${action.type}, current pending: ${!!this.pendingPersonalityEvolution}`);
+      
+      if (this.pendingPersonalityEvolution) {
+        console.log(`🧠 Personality evolution already in progress, queueing new evolution after current one`);
+        // Chain the new evolution after the current one completes
+        this.pendingPersonalityEvolution = this.pendingPersonalityEvolution.then(() => {
+          console.log(`🧠 Previous evolution completed, starting queued evolution for ${action.type}`);
+          return this.evolvePersonalitiesAfterDivineEvent(action);
+        }).catch(err => {
+          console.error('❌ Error in chained personality evolution:', err);
+        });
+      } else {
+        // Start new evolution
+        this.pendingPersonalityEvolution = this.evolvePersonalitiesAfterDivineEvent(action).catch(err => {
+          console.error('❌ Error evolving personalities:', err);
+          this.pendingPersonalityEvolution = null;
+        });
+      }
+      console.log(`🧠 Personality evolution promise created for ${action.type}`);
     }
 
     return result;
@@ -852,9 +882,36 @@ export class GameEngine {
       }
       
       console.log(`✅ Personality evolution completed: ${evolutionCount} factions evolved after divine ${divineAction.type}`);
+      console.log(`🐛 Personality evolution finished, setting pendingPersonalityEvolution to null`);
+      
+      // Check if we need to restart turn after evolution completes
+      // This handles the case where divine events happened but no animations are waiting
+      if (this.needsRestartAfterObserver && !this.isWaitingForAnimation && !this.isProcessingTurn) {
+        console.log(`🔄 Personality evolution complete - triggering delayed turn restart`);
+        setTimeout(() => {
+          if (this.needsRestartAfterObserver && !this.isWaitingForAnimation && !this.isProcessingTurn) {
+            console.log(`🔄 Executing delayed turn restart after personality evolution`);
+            this.needsRestartAfterObserver = false;
+            this.processNextTurn();
+          }
+        }, 500);
+      }
 
     } catch (error) {
       console.error('❌ Personality evolution failed:', error.message);
+      console.log(`🐛 Personality evolution failed, setting pendingPersonalityEvolution to null`);
+      
+      // Even on failure, check if we need to restart
+      if (this.needsRestartAfterObserver && !this.isWaitingForAnimation && !this.isProcessingTurn) {
+        console.log(`🔄 Personality evolution failed - triggering delayed turn restart anyway`);
+        setTimeout(() => {
+          if (this.needsRestartAfterObserver && !this.isWaitingForAnimation && !this.isProcessingTurn) {
+            console.log(`🔄 Executing delayed turn restart after personality evolution failure`);
+            this.needsRestartAfterObserver = false;
+            this.processNextTurn();
+          }
+        }, 500);
+      }
       // Game continues even if personality evolution fails
     }
   }

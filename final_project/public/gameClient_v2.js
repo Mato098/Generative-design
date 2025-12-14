@@ -195,24 +195,13 @@ function handleServerMessage(message) {
         console.log(`📋 Found ${message.data.actions.length} actions to process`);
         for (const action of message.data.actions) {
           console.log('➕ Adding action to queue:', action);
+          // Store player name with action for later logging
+          action.playerName = message.data.player;
           animationQueue.push(action);
           
           if (message.data.player !== 'Observer') personalityEvolving = false;
           
-          // Log action
-          if (action.action) {
-            const params = action.action.parameters;
-            let actionText = `${message.data.player}: ${action.action.type}`;
-            if (params.x !== undefined) actionText += ` (${params.x},${params.y})`;
-            actionLog.push(actionText);
-            if (actionLog.length > MAX_LOG_ENTRIES) actionLog.shift();
-            
-            // Log messages separately
-            if (action.action.type === 'Message' && params.text) {
-              messageLog.push({ player: message.data.player, text: params.text });
-              if (messageLog.length > MAX_LOG_ENTRIES) messageLog.shift();
-            }
-          }
+          // Don't log action or message immediately - will be done when animation starts
         }
       } else {
         console.warn('⚠️ No actions array in actionsExecuted message');
@@ -308,6 +297,25 @@ function processAnimationQueue() {
 }
 
 function executeAnimation(action, callback) {
+  // Log action and message when animation starts (not when received)
+  if (action.action) {
+    const params = action.action.parameters;
+    const playerName = action.playerName || 'Unknown';
+    let actionText = `${playerName}: ${action.action.type}`;
+    if (params.x !== undefined) actionText += ` (${params.x},${params.y})`;
+    actionLog.push(actionText);
+    if (actionLog.length > MAX_LOG_ENTRIES) actionLog.shift();
+    
+    // Log messages separately
+    if (action.action.type === 'Message' && params.text) {
+      messageLog.push({ player: playerName, text: params.text });
+      if (messageLog.length > MAX_LOG_ENTRIES) messageLog.shift();
+    }
+    
+    // Invalidate message panel cache so new message shows up
+    messagesPanelCacheInvalid = true;
+  }
+  
   // Simple timing-based animation system
   const actionType = action.action ? action.action.type : action.type;
   let duration;
@@ -604,9 +612,6 @@ function draw() {
   particleManager.update(deltaTime / 1000);
   particleManager.draw();
 
-  
-  image(tileCache.get(`${2}-${2}`), 0, 0); // Test tile rendering
-  
   fill(textCol);
   
   const drawEnd = performance.now();
@@ -619,10 +624,7 @@ function draw() {
   const gameTime = (gameEnd - gameStart).toFixed(2);
   
   let framerate = frameRate();
-  text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
-  text(`Draw: ${totalDrawTime}ms | Panels: ${panelsTime}ms`, 10, 530);
-  text(`Msg:${msgTime} Info:${infoTime} Ctrl:${controlsTime} Title:${titleTime} Game:${gameTime}`, 10, 550);
-
+  //text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
 }
 
 function drawPersonalityEvolvingEffect(){
@@ -800,7 +802,10 @@ function render_ascii_to_buffer(buffer, x, y, w, h, style = '=I****', color = nu
     buffer.textAlign(LEFT, BASELINE);
     buffer.pop();
   }
-
+function sanitizeAscii(str) {
+  // Replace non-ASCII and newline characters with a space
+  return str.replace(/[^\x00-\x7F]|\r?\n|\r/g, ' ');
+}
 function renderMessagesPanelToBuffer(buffer, panel) {
   // Clear buffer with transparent background
   buffer.clear();
@@ -902,7 +907,7 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   // Draw all message text in white
   buffer.fill(255);
   for (const pos of messageYPositions) {
-    buffer.text(pos.msg.text, 20, pos.y + 15);
+    buffer.text(sanitizeAscii(pos.msg.text), 20, pos.y + 15);
   }
 }
 

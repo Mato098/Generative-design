@@ -12,9 +12,9 @@ function seededRandomGenerator(seed) {
     return seed / 233280;
   };
 }
-
 function sanitizeAscii(str) {
-  return str.replace(/[^\x00-\x7F]/g, ' ');
+  // Replace non-ASCII and newline characters with a space
+  return str.replace(/[^\x00-\x7F]|\r?\n|\r/g, ' ');
 }
 
 function easeInOutCubic(t) {
@@ -359,7 +359,7 @@ export function drawTilesConvert(gameState, cellSize) {
       const endY = fleeY * cellSize + window.LAYOUT.totalHeight * 0.1/9;
       const currentX = startX + (endX - startX) * progress;
       const currentY = startY + (endY - startY) * progress;
-
+      textAlign(CENTER, CENTER);
       text(fleeing_amount_per_tile, currentX + cellSize * 0.5 - 2, currentY + cellSize * 0.5);
     }
   }

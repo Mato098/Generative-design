@@ -96,8 +96,8 @@ EVOLUTION GUIDELINES:
   • intensification or weakening of quirks
   • shifts in certainty, confidence, or tone
   • new constraints or defects (e.g., hesitations, ritual phrases, clipped logic, manic spirals)
-- Update core_beliefs if worldview changes.
-- Adjust decision_style or authority_relationship if their stance toward divine judgment shifts.
+- Update core beliefs if worldview changes.
+- Adjust decision style or authority relationship if their stance toward divine judgment shifts.
 - Nonverbal markers (interjections, pauses, tics) may:
   • increase or decrease in frequency
   • shift meaning (confidence → doubt, reverence → fear)
@@ -108,6 +108,14 @@ EVOLUTION GUIDELINES:
   • its intrinsic nature
   • its relationship to the target(s)
 - Evaluate perceived fairness, justice, favoritism, or randomness of the intervention.
+The prompt is also a way to hold some long-term memory of big events. feel free to make them remember past events or have them accumlate relationship info
+-do not make them remember coordinates (or 3x3), make it more general if nescessary
+-it would be great if you kept in mind the dramatic arc of the entire game, and make personalities evolve in a way that makes sense for the overall story
+STYLE MEMORY RULE:
+Each personality retains memory of its own prior speech patterns.
+If past messages were blunt, fragmented, hesitant, or grammatically rough, future speech must preserve or exaggerate those traits.
+Do NOT allow personalities to become more articulate, eloquent, or rhetorically complex over time unless explicitly justified by a major worldview shift.
+
 - All output must be valid JSON.`;
   }
 

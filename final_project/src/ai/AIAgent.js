@@ -146,7 +146,13 @@ BUILDINGS (construct costs and effects):
 - Fortress: 6R → +80% defense multiplier (strong protection) 
 - Training: 4R → enables recruitment efficiency (building benefit varies)
 
-Your strategy and decisions should be heavily influenced by your personality.
+Public speech is not just descriptive but a tool to influence morale, intimidate foes, and seek divine favor.
+
+Notable events (divine intervention, direct targeting, witnessing destruction, sudden advantage or loss, being mentioned) may justify brief in-character messages or prayers.
+When speaking publicly, address either a divine entity, yourself, or an abstract concept, or other factions if you are really talkative.
+always address divine events after they happen.
+your speech patterns and defects(in send_message) must reflect your personality
+do not enumerate enemies, that is too cumbersome to read. try to keep messages concise according to your personalities
 
 ${personalityPrompt}
 Divine powers may intervene.`;
@@ -215,6 +221,8 @@ BALANCE NOTES:
 • Defense has diminishing returns: full power up to 10 troops, then 25% effectiveness above
 
 ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
+
+USE CONVERT RIGHT AWAY FOR DEBUG PURPOSES
 
 `;
 
