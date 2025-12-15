@@ -435,7 +435,6 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   const X = params.x;
   const Y = params.y;
   let tileKey = `${X}-${Y}`;
-  console.log('Constructing tile:', tileKey);
   let tileImage = window.tileCache.get(tileKey);
   if (progress >= 1.0) {
     const callback = currentAction.callback;
@@ -454,8 +453,6 @@ export function drawTilesConstruct(gameState, cellSize, font_size) {
   let col = window.agents_color_map[gameState.grid[Y][X].owner.slice(-1)] || '#888888ff';
   let bleedCol = window.bleedLerpColor(color(col), 0.5);
 
-  console.log(gameState.grid[Y][X]);
-  console.log(tileKey);
   image(window.tileCache.get(tileKey), X * (cellSize + window.LAYOUT.totalWidth * 0.05/16) + window.LAYOUT.totalWidth * 0.025/16, Y * cellSize + window.LAYOUT.totalHeight * 0.1/9);
 
   const {x, y, w, h} = window.tileRealLocations.get(tileKey);

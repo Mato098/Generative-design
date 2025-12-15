@@ -73,50 +73,75 @@ export class PersonalityEvolver {
 CURRENT PERSONALITIES:
 ${JSON.stringify(personalities, null, 2)}
 
-EVOLUTION TASK:
-Evolve each AI personality in response to this divine intervention. All changes must preserve core identity while shifting worldview, behavior, and speech style based on the event.
+TASK:
+Evolve each AI personality in response to this divine intervention.
+Preserve core identity. Changes must be meaningful but concise.
+This prompt also serves as long-term memory of major events.
 
 CONSIDER:
+
 1. DIRECT TARGET${Array.isArray(targetFaction) ? 'S' : ''} (${directTargetText}):
-   How does being personally targeted or spared alter their confidence, tone, beliefs, or speech defects?
+   How does being targeted or spared affect confidence, tone, beliefs, emotional state, or speech defects?
+   Reactions should be strong but compact.
 
 2. WITNESSES:
-   How do factions adjust their mannerisms, reasoning style, or rhetorical tendencies when they watch others judged by divine power?
+   How do others adjust tone, reasoning style, or caution after observing divine judgment?
 
-3. PERSONALITY CONSISTENCY:
-   Core identity must remain intact, but growth should be meaningful—affecting worldview, decision logic, emotional tone, or linguistic quirks.
+3. CONSISTENCY:
+   Do not replace the core persona.
+   Intensify or constrain existing traits only.
 
-4. RELATIONSHIP DYNAMICS:
-   How does their relationship to the divine entity shift?
-   Fear? Reverence? Doubt? Opportunism? Pride? Humiliation?
+4. RELATIONSHIPS (MEMORY):
+   Update remembered impressions of others’ words, actions, or silences during this event.
+   Also update how this faction remembers the divine’s past behavior toward them.
 
-EVOLUTION GUIDELINES:
-- Modify personality_prompt (1–2 sentences per faction), focusing on:
-  • evolution of speech patterns
-  • intensification or weakening of quirks
-  • shifts in certainty, confidence, or tone
-  • new constraints or defects (e.g., hesitations, ritual phrases, clipped logic, manic spirals)
-- Update core beliefs if worldview changes.
-- Adjust decision style or authority relationship if their stance toward divine judgment shifts.
-- Nonverbal markers (interjections, pauses, tics) may:
-  • increase or decrease in frequency
-  • shift meaning (confidence → doubt, reverence → fear)
-  • become ritualized, obsessive, or suppressed
-- Any evolution of nonverbal markers must remain persona-consistent
-- Maintain the same JSON structure and original faction tags and names.
-- Each faction reacts according to both:
-  • its intrinsic nature
-  • its relationship to the target(s)
-- Evaluate perceived fairness, justice, favoritism, or randomness of the intervention.
-The prompt is also a way to hold some long-term memory of big events. feel free to make them remember past events or have them accumlate relationship info
--do not make them remember coordinates (or 3x3), make it more general if nescessary
--it would be great if you kept in mind the dramatic arc of the entire game, and make personalities evolve in a way that makes sense for the overall story
+   ALLOWED:
+   • remembered support, abandonment, fear, admiration, debt, mistrust
+   • recent events outweigh older ones
+   • compress repeated patterns into brief judgments
+
+   FORBIDDEN:
+   • permanent allies/enemies
+   • fixed trust tables
+   • strategy or future commitments
+   • stable relationship labels
+
+GUIDELINES:
+- Modify personality_prompt only.
+- Keep additions SHORT.
+- Prefer intensifying existing quirks over adding new ones.
+- Nonverbal markers may increase, fade, or shift meaning.
+
+RELATIONSHIP MEMORY FORMAT:
+- If added, include ONE short section inside personality_prompt:
+  • "Relational Impressions:"
+  • "Lingering Judgments:"
+  • or "Remembered Slights and Debts:"
+- Max 3 bullets total.
+- Bullets must be brief (≤12 words each).
+- Naming factions is allowed only for specific remembered events.
+- Divine relationship may be mentioned here.
+
 STYLE MEMORY RULE:
-Each personality retains memory of its own prior speech patterns.
-If past messages were blunt, fragmented, hesitant, or grammatically rough, future speech must preserve or exaggerate those traits.
-Do NOT allow personalities to become more articulate, eloquent, or rhetorically complex over time unless explicitly justified by a major worldview shift.
+Preserve prior speech style.
+Do NOT increase eloquence or complexity unless justified by major worldview change.
 
-- All output must be valid JSON.`;
+HARD OUTPUT LIMITS (IMPORTANT):
+- Each personality_prompt must be ≤ 120 words total.
+- Relationship memory section is optional but, if present, ≤ 3 bullets.
+- Do not expand background lore.
+
+CONSTRAINTS:
+- No spatial details.
+- Memories must be narrative, not mechanical.
+- Favor developments that support the long-term dramatic arc.
+
+OUTPUT:
+- Maintain the same JSON structure, tags, and names.
+- Output MUST be valid JSON.
+- Do not include explanations or extra text.
+
+`;
   }
 
   describeDivineEvent(divineEvent, targetFaction) {

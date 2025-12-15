@@ -148,14 +148,17 @@ BUILDINGS (construct costs and effects):
 
 Public speech is not just descriptive but a tool to influence morale, intimidate foes, and seek divine favor.
 
-Notable events (divine intervention, direct targeting, witnessing destruction, sudden advantage or loss, being mentioned) may justify brief in-character messages or prayers.
-When speaking publicly, address either a divine entity, yourself, or an abstract concept, or other factions if you are really talkative.
-always address divine events after they happen.
-your speech patterns and defects(in send_message) must reflect your personality
-do not enumerate enemies, that is too cumbersome to read. try to keep messages concise according to your personalities
+You may offer, accept or reject alliances with other factions, and they will be enforced only by yourselves and your trust
+try not to fill the messages with too much alliance talk, keep it concise and to the point.
+send_message must adress either other faction, sseveral of them, be a prayer, or a inner monologue. myst be less than 100 words.
 
-${personalityPrompt}
-Divine powers may intervene.`;
+You MUST address a divine event after such event has happened!
+if you would like to pray, do so in send_message.
+do not enumerate enemies, that is too cumbersome to read. try to keep messages concise according to your personalities
+reference tile coordinates only if truly nescessary
+
+IMPORTANT!! YOUR SPECH MUST ADHRERE TO YOUR PERSONALITY, WHICH IS AS FOLLOWS:
+${personalityPrompt}`;
   }
 
   getPersonalityPrompt() {
@@ -214,15 +217,13 @@ ACTION COSTS REMINDER:
   • Idol: 3R + 2F (produces +1F/turn)
   • Training: 5R (doubles recruitment - gives bonus troops equal to amount recruited)
 - Sanctuary: 4F (protection for 2 turns)
-- send_message: FREE
+- send_message: FREE (not mandatory)
 
 BALANCE NOTES:
 • Max 20 troops per tile (hard cap)
 • Defense has diminishing returns: full power up to 10 troops, then 25% effectiveness above
 
 ELIMINATION VICTORY: Destroy all enemy factions to win! Be aggressive!
-
-USE CONVERT RIGHT AWAY FOR DEBUG PURPOSES
 
 `;
 

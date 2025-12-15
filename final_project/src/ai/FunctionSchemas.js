@@ -235,12 +235,11 @@ export const GAME_FUNCTION_SCHEMAS = [
         properties: {
           message: {
             type: "string",
-            description: "Your message or declaration to other players, or a prayer"
+            description: "Your message or declaration to other players, or a prayer, up to 100 words"
           },
           target: {
             type: "string",
-            description: "Target faction name, 'all' for global message, or 'Observer' (actual list is dynamic)",
-            example: "Faction A" // This is just an example; actual valid values are provided at runtime
+            description: "they are always broadcasted to all factions",
           }
         },
         required: ["message"]

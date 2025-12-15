@@ -183,7 +183,7 @@ function handleServerMessage(message) {
     case 'gameState':
       console.log('🎮 Game state updated');
       gameState = message.data;
-      tileCache.clear(); // Clear cache for new state
+      clearTileCache();
       //console.log('🧹 Cleared tile cache for new game state');
       break;
       
@@ -223,7 +223,7 @@ function handleServerMessage(message) {
     case 'gameStarted':
       console.log('🎮 Game started, initial state:', message.data);
       gameState = message.data;
-      tileCache.clear(); // Clear cache for initial state
+      clearTileCache();
       console.log('🧹 Cleared tile cache for game start');
       actionLog.push('Game started!');
       
@@ -439,7 +439,7 @@ function getAnimationDuration(type, messageText='') {
   if (type === 'Message') {
     // 50ms per character, min 1500ms, max 8000ms
     const base = 1500;
-    const perChar = 75;
+    const perChar = 65;
     const max = 20000;
     if (typeof messageText === 'string') {
       return Math.max(base, Math.min(max, base + messageText.length * perChar));
@@ -624,7 +624,7 @@ function draw() {
   const gameTime = (gameEnd - gameStart).toFixed(2);
   
   let framerate = frameRate();
-  //text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
+  text(`FPS: ${framerate.toFixed(2)}`, 10, 10);
 }
 
 function drawPersonalityEvolvingEffect(){
@@ -663,6 +663,7 @@ function drawMessagesPanel() {
   const panel = LAYOUT.messagesPanel;
 
   if (messagesPanelCacheInvalid) {
+    if (messagesPanelCache) messagesPanelCache.remove();
     messagesPanelCache = createGraphics(panel.width, panel.height);
     renderMessagesPanelToBuffer(messagesPanelCache, panel);
     
@@ -907,7 +908,8 @@ function renderMessagesPanelToBuffer(buffer, panel) {
   // Draw all message text in white
   buffer.fill(255);
   for (const pos of messageYPositions) {
-    buffer.text(sanitizeAscii(pos.msg.text), 20, pos.y + 15);
+    let maxCharsForThisLine = Math.floor((panel.width - 40) / buffer.textWidth('A'));
+    buffer.text(sanitizeAscii(pos.msg.text).substring(0, maxCharsForThisLine) + '..', 20, pos.y + 15);
   }
 }
 
@@ -1236,6 +1238,7 @@ function drawInfoPanel() {
   // Top-right: Faction info
   const panel = LAYOUT.rightPanel.infoSection;
   if (infoPanelCacheInvalid) {
+    if (infoPanelCache) infoPanelCache.remove();
     infoPanelCache = createGraphics(panel.width, panel.height);
     renderInfoPanelToBuffer(infoPanelCache, panel);
     infoPanelCacheInvalid = false;
@@ -1672,11 +1675,18 @@ function sendObserverMessage() {
   textBoxActive = false;
 }
 
+function clearTileCache(){
+  for (const key of tileCache.keys()){
+    tileCache.get(key).remove();
+  }
+  tileCache.clear();
+}
+
 function startGame() {
   console.log('🎮 Starting new game...');
 
   // Get all available personality keys
-  const allPersonalities = ['zealot', 'skeptic', 'madman', 'aristocrat', 'peasant', 'scholar', 'barbarian']
+  const allPersonalities = ['zealot', 'skeptic', 'madman', 'aristocrat', 'peasant', 'barbarian', 'opportunist']
   // Shuffle personalities for random assignment
   const shuffled = allPersonalities.sort(() => Math.random() - 0.5);
   // Assign to factions A-D
@@ -1708,7 +1718,7 @@ function startGame() {
   gameOver = false;
 
   // Tile caching for performance
-  tileCache.clear();
+  clearTileCache();
   gameStateSnapshot = null;
   isAnimationSequenceActive = false;
   cacheClearPending = false;
@@ -1716,8 +1726,10 @@ function startGame() {
   textBoxActive = false;
 
 // Panel caching for performance
+  if (messagesPanelCache) messagesPanelCache.remove();
   messagesPanelCache = null;
   messagesPanelCacheInvalid = true;
+  if (infoPanelCache) infoPanelCache.remove();
   infoPanelCache = null;
   infoPanelCacheInvalid = true;
   titleCache = null;
