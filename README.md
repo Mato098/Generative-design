@@ -5,12 +5,12 @@
 
 ## HW2 - Curved/noisy creations in motion
 
-<video src="hw2/1.mp4" width="800" height="800" controls></video>
+https://github.com/user-attachments/assets/1917337d-3c33-4006-b5b2-ac7c0ab440a8
 
 ## HW3 - Agentic systems / kinetic typography
 ![HW3 image](hw3/1.png)
-<video src="hw3/recording.mp4" width="800" height="800" controls></video>
 
+https://github.com/user-attachments/assets/35526937-6911-498a-9585-900c09e9ef50
 
 ## Final Project - Playing God
 ![Final project image](final_project/presentation_stuff/screenshot.png)
